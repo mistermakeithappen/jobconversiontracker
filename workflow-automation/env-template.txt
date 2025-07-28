@@ -1,0 +1,26 @@
+# Copy this file to .env.local and fill in your actual values
+# Supabase Configuration
+NEXT_PUBLIC_SUPABASE_URL=https://hmulhwnftlsezkjuflxm.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key-here
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key-here
+
+# Local Supabase Development
+NEXT_PUBLIC_SUPABASE_URL_LOCAL=http://127.0.0.1:54321
+NEXT_PUBLIC_SUPABASE_ANON_KEY_LOCAL=your-local-anon-key-here
+SUPABASE_SERVICE_ROLE_KEY_LOCAL=your-local-service-role-key-here
+
+# OpenAI (for AI features)
+OPENAI_API_KEY=your-openai-api-key-here
+
+# Clerk Authentication (if using)
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=your-clerk-publishable-key-here
+CLERK_SECRET_KEY=your-clerk-secret-key-here
+CLERK_WEBHOOK_SECRET=your-clerk-webhook-secret-here
+
+# Stripe (for payments)
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=your-stripe-publishable-key-here
+STRIPE_SECRET_KEY=your-stripe-secret-key-here
+STRIPE_WEBHOOK_SECRET=your-stripe-webhook-secret-here
+
+# Development
+NODE_ENV=development 
