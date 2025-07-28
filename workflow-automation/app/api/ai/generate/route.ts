@@ -45,7 +45,7 @@ async function generateWorkflowFromPrompt(prompt: string) {
             config: {
               to: '{{contact.email}}',
               subject: 'Welcome to our platform!',
-              body: 'Hi {{contact.firstName}},\\n\\nWelcome! We\\'re excited to have you here.'
+              body: 'Hi {{contact.firstName}},\\n\\nWelcome! We\'re excited to have you here.'
             }
           }
         }
