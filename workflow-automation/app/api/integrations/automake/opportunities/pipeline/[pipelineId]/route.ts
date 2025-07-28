@@ -20,7 +20,7 @@ export async function GET(
     const maxResults = parseInt(searchParams.get('maxResults') || '5000');
     
     // Get user's GHL integration
-    let { data: integration, error } = await supabase
+    const { data: integration, error } = await supabase
       .from('integrations')
       .select('*')
       .eq('user_id', userId)
@@ -77,12 +77,14 @@ export async function GET(
         meta: opportunitiesResponse.meta
       });
       
-    } catch (apiError: any) {
+    } catch (apiError) {
       console.error('GHL API error for pipeline opportunities:', apiError);
+      const errorMessage = apiError instanceof Error ? apiError.message : 'Failed to fetch pipeline opportunities';
+      const errorDetails = apiError instanceof Error ? apiError.toString() : String(apiError);
       
       return NextResponse.json({ 
-        error: apiError.message || 'Failed to fetch pipeline opportunities',
-        details: apiError.toString(),
+        error: errorMessage,
+        details: errorDetails,
         pipelineId
       }, { status: 500 });
     }

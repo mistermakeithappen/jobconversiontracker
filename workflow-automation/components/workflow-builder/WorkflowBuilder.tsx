@@ -202,7 +202,7 @@ function Flow({ initialData, onNodesChange: onNodesChangeCallback, onEdgesChange
       const moduleData = event.dataTransfer.getData('application/reactflow');
       if (!moduleData) return;
 
-      const module = JSON.parse(moduleData);
+      const moduleConfig = JSON.parse(moduleData);
 
       const position = reactFlowInstance.screenToFlowPosition({
         x: event.clientX,
@@ -211,19 +211,19 @@ function Flow({ initialData, onNodesChange: onNodesChangeCallback, onEdgesChange
 
       const newNode: Node = {
         id: `${Date.now()}`,
-        type: module.options ? 'custom' : 'default',
+        type: moduleConfig.options ? 'custom' : 'default',
         position,
         data: { 
-          label: module.name,
-          description: module.description,
-          iconName: module.name, // Pass the name instead of the component
-          color: module.color,
-          integration: module.integration,
-          moduleType: module.moduleType,
-          options: module.options,
+          label: moduleConfig.name,
+          description: moduleConfig.description,
+          iconName: moduleConfig.name, // Pass the name instead of the component
+          color: moduleConfig.color,
+          integration: moduleConfig.integration,
+          moduleType: moduleConfig.moduleType,
+          options: moduleConfig.options,
           selectedOption: ''
         },
-        style: module.options ? undefined : {
+        style: moduleConfig.options ? undefined : {
           background: '#ffffff',
           border: '2px solid #e5e7eb',
           borderRadius: '8px',

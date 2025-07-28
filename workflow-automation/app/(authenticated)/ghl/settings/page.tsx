@@ -5,7 +5,6 @@ import { Settings, CreditCard, DollarSign, Users, Building2 } from 'lucide-react
 import Link from 'next/link';
 
 export default function GHLSettingsPage() {
-  const [activeSection, setActiveSection] = useState('overview');
   const [stats, setStats] = useState({
     companyCards: 0,
     activeUsers: 0,
@@ -33,7 +32,7 @@ export default function GHLSettingsPage() {
 
       setStats({
         companyCards: cardsData.cards?.length || 0,
-        activeUsers: usersData.users?.filter((user: any) => user.isActive !== false)?.length || 0,
+        activeUsers: usersData.users?.filter((user: { isActive?: boolean }) => user.isActive !== false)?.length || 0,
         paymentStructures: paymentsData.assignments?.length || 0,
         loading: false
       });

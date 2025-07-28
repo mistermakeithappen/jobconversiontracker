@@ -13,7 +13,6 @@ import {
   Clock,
   TrendingUp,
   MessageSquare,
-  CreditCard,
   Unlink
 } from 'lucide-react';
 
@@ -21,7 +20,7 @@ interface Integration {
   id: string;
   status: 'connected' | 'disconnected' | 'error';
   name: string;
-  config: any;
+  config: Record<string, unknown>;
   lastSync?: string;
   contactCount?: number;
   opportunityCount?: number;

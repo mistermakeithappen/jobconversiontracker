@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Search, Code, BookOpen, Zap, Database, MessageSquare, Building2, Key, Copy, CheckCircle, ExternalLink, Filter, Download } from 'lucide-react';
+import { Search, Code, BookOpen, Zap, Database, MessageSquare, Building2, Key, Copy, CheckCircle, ExternalLink, Download } from 'lucide-react';
 import { Integration, ApiEndpoint } from '@/lib/integrations/registry';
 
 interface EndpointWithIntegration extends ApiEndpoint {
@@ -182,7 +182,7 @@ export default function DeveloperDocsPage() {
             } : undefined
           };
           return acc;
-        }, {} as any) || {
+        }, {} as Record<string, { description: string; content?: { 'application/json': { example: unknown } } }>) || {
           '200': {
             description: 'Success'
           }

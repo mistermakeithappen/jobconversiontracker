@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { RefreshCw, CheckCircle, XCircle, AlertCircle, Clock, Loader2, Filter, Search, ExternalLink } from 'lucide-react';
+import { RefreshCw, CheckCircle, XCircle, AlertCircle, Clock, Loader2, Search, ExternalLink } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 import { useMockAuth } from '@/lib/auth/mock-auth';
 
@@ -18,8 +18,8 @@ interface Execution {
   started_at: string;
   completed_at?: string;
   error?: string;
-  input_data?: any;
-  output_data?: any;
+  input_data?: Record<string, unknown>;
+  output_data?: Record<string, unknown>;
   workflow?: {
     id: string;
     name: string;
@@ -27,7 +27,7 @@ interface Execution {
 }
 
 export default function ExecutionsPage() {
-  const { userId } = useMockAuth();
+  const { } = useMockAuth(); // Auth context available
   const [executions, setExecutions] = useState<Execution[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');

@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
     const pipelineId = searchParams.get('pipelineId') || undefined;
     
     // Get user's GHL integration
-    let { data: integration, error } = await supabase
+    const { data: integration, error } = await supabase
       .from('integrations')
       .select('*')
       .eq('user_id', userId)
@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
         }, { status: 400 });
       }
       
-      const locationsData = await locationsResponse.json();
+      await locationsResponse.json(); // This updates the integration with locationId
       
       // Re-fetch the integration to get the updated locationId
       const { data: updatedIntegration } = await supabase
@@ -243,7 +243,7 @@ export async function GET(request: NextRequest) {
           };
           
           // Upsert to cache
-          const { data: cached } = await supabase
+          await supabase
             .from('opportunity_cache')
             .upsert(opportunityData, { onConflict: 'opportunity_id' })
             .select()

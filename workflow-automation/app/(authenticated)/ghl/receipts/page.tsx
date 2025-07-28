@@ -1,11 +1,22 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Receipt, MessageSquare, Camera, Smartphone, RefreshCw, CheckCircle, Plus, TrendingUp, Eye, Calendar, DollarSign, Building } from 'lucide-react';
+import { Receipt as ReceiptIcon, MessageSquare, Camera, Smartphone, RefreshCw, CheckCircle, Plus, TrendingUp, Eye, Calendar, DollarSign, Building } from 'lucide-react';
 import Link from 'next/link';
 
+interface Receipt {
+  id: string;
+  vendor: string;
+  amount: number;
+  date: string;
+  is_reimbursable?: boolean;
+  opportunity_id?: string;
+  opportunity_name?: string;
+  created_at: string;
+  image_url?: string;
+}
+
 export default function GHLReceiptsPage() {
-  const [connected, setConnected] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'checking' | 'connected' | 'disconnected'>('checking');
   const [stats, setStats] = useState({
     totalReceipts: 0,
@@ -13,7 +24,7 @@ export default function GHLReceiptsPage() {
     totalNonReimbursable: 0,
     recentSMSCount: 0
   });
-  const [receipts, setReceipts] = useState([]);
+  const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [receiptsLoading, setReceiptsLoading] = useState(true);
 
   useEffect(() => {
@@ -25,7 +36,7 @@ export default function GHLReceiptsPage() {
     try {
       const response = await fetch('/api/integrations/automake/status');
       const data = await response.json();
-      setConnected(data.connected);
+      // Connection status is already set above
       setConnectionStatus(data.connected ? 'connected' : 'disconnected');
     } catch (error) {
       console.error('Error checking GHL connection:', error);
@@ -40,7 +51,7 @@ export default function GHLReceiptsPage() {
       
       if (response.ok && data.receipts) {
         const totalReceipts = data.receipts.length;
-        const reimbursable = data.receipts.filter((r: any) => r.is_reimbursable).length;
+        const reimbursable = data.receipts.filter((r: Receipt) => r.is_reimbursable).length;
         const nonReimbursable = totalReceipts - reimbursable;
         
         setStats({
@@ -372,7 +383,7 @@ export default function GHLReceiptsPage() {
                 </tr>
               </thead>
               <tbody>
-                {receipts.map((receipt: any) => (
+                {receipts.map((receipt: Receipt) => (
                   <tr key={receipt.id} className="border-b border-gray-100 hover:bg-gray-50">
                     <td className="py-3 px-4">
                       <div className="flex items-center space-x-2">

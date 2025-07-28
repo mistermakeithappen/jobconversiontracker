@@ -5,9 +5,28 @@ import { Upload, Camera, MessageSquare, CheckCircle, AlertCircle, Clock } from '
 
 interface ProcessingResult {
   success: boolean;
-  receiptData?: any;
-  jobMatches?: any[];
-  response?: any;
+  receiptData?: {
+    vendor: string;
+    amount: number;
+    date: string;
+    description?: string;
+    category?: string;
+    taxAmount?: number;
+    subtotal?: number;
+    confidence?: number;
+  };
+  jobMatches?: Array<{
+    opportunity_id: string;
+    opportunity_name: string;
+    contact_name?: string;
+    confidence_score: number;
+    match_reason: string;
+  }>;
+  response?: {
+    message?: string;
+    receiptId?: string;
+    [key: string]: unknown;
+  };
   nextAction?: string;
   error?: string;
 }
@@ -104,7 +123,7 @@ export default function TestReceiptAIPage() {
         <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
           <p className="text-blue-700 text-sm">
             <strong>Note:</strong> This system now uses your personal OpenAI API key. 
-            Make sure you've added one in <a href="/settings/api-keys" className="underline hover:text-blue-800">API Keys Settings</a>.
+            Make sure you&apos;ve added one in <a href="/settings/api-keys" className="underline hover:text-blue-800">API Keys Settings</a>.
           </p>
         </div>
       </div>
@@ -228,7 +247,7 @@ export default function TestReceiptAIPage() {
                           AI Job Matches Found
                         </h4>
                         <div className="space-y-2">
-                          {result.jobMatches.map((match: any, index: number) => (
+                          {result.jobMatches.map((match, index) => (
                             <div key={index} className="bg-white rounded-lg p-3 border border-green-100">
                               <div className="flex items-start justify-between">
                                 <div className="flex-1">

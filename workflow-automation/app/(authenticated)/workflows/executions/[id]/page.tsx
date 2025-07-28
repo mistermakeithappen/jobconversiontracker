@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, CheckCircle, XCircle, AlertCircle, Clock, Loader2, Terminal } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
+import { ExecutionResult, WorkflowNode, WorkflowEdge } from '@/types/api';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -14,8 +15,8 @@ const supabase = createClient(
 export default function ExecutionDetailPage() {
   const params = useParams();
   const executionId = params.id as string;
-  const [execution, setExecution] = useState<any>(null);
-  const [workflow, setWorkflow] = useState<any>(null);
+  const [execution, setExecution] = useState<ExecutionResult | null>(null);
+  const [workflow, setWorkflow] = useState<{ id: string; name: string; definition: { nodes: WorkflowNode[]; edges: WorkflowEdge[] } } | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -188,7 +189,7 @@ export default function ExecutionDetailPage() {
           <h3 className="font-semibold text-gray-900 mb-4">Execution Logs</h3>
           {execution.logs && execution.logs.length > 0 ? (
             <div className="space-y-2">
-              {execution.logs.map((log: any, index: number) => (
+              {execution.logs.map((log, index) => (
                 <div 
                   key={index}
                   className="flex items-start space-x-3 p-3 bg-gray-50 rounded-lg"

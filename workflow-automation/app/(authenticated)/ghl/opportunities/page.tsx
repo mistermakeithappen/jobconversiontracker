@@ -221,7 +221,7 @@ export default function GHLOpportunitiesPage() {
               <h4 className="text-sm font-medium text-yellow-800">Using Sample Data</h4>
               <p className="text-sm text-yellow-700 mt-1">
                 GoHighLevel opportunities API may not be accessible. 
-                Showing sample data based on your pipelines. Click "Sync Data" to retry fetching real opportunities.
+                Showing sample data based on your pipelines. Click &quot;Sync Data&quot; to retry fetching real opportunities.
               </p>
             </div>
           </div>

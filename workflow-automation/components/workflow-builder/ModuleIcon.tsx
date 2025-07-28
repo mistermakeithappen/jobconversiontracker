@@ -1,11 +1,11 @@
-import { Building2, Webhook, Clock, Globe, Mail, Sparkles, Database, Code, GitBranch, Filter, Repeat, FileText } from 'lucide-react';
+import { Building2, Webhook, Clock, Globe, Mail, Sparkles, Database, Code, GitBranch, Filter, Repeat, FileText, LucideIcon } from 'lucide-react';
 
 interface ModuleIconProps {
   name: string;
   className?: string;
 }
 
-const iconMap: Record<string, any> = {
+const iconMap: Record<string, LucideIcon> = {
   'GoHighLevel Trigger': Building2,
   'GoHighLevel Action': Building2,
   'Webhook': Webhook,

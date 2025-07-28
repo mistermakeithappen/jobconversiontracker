@@ -1309,7 +1309,7 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
                       }).length === 0 && (
                         <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded-lg">
                           <p className="text-sm text-yellow-700">
-                            Don't see someone?{' '}
+                            Don&apos;t see someone?{' '}
                             <a 
                               href="/ghl/settings" 
                               className="text-blue-600 hover:text-blue-800 underline"
@@ -1778,7 +1778,7 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
                 <div className="text-center py-8 text-gray-500">
                   <DollarSign className="w-12 h-12 mx-auto mb-3 text-gray-300" />
                   <p className="text-sm">No commission assignments yet</p>
-                  <p className="text-xs mt-1">Click "Assign Commission" to add team members who will receive commission</p>
+                  <p className="text-xs mt-1">Click &quot;Assign Commission&quot; to add team members who will receive commission</p>
                 </div>
               ) : (
                 <div className="space-y-3">

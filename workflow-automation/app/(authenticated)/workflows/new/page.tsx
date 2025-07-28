@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useState, useCallback, useEffect } from 'react';
 import { ArrowLeft, Save, Play, Settings, Sparkles, Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { WorkflowNode, WorkflowEdge } from '@/types/api';
 
 // Dynamic import to avoid SSR issues with React Flow
 const WorkflowBuilder = dynamic(
@@ -17,9 +18,9 @@ export default function NewWorkflowPage() {
   const [showAIDialog, setShowAIDialog] = useState(false);
   const [aiPrompt, setAIPrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
-  const [workflowData, setWorkflowData] = useState<any>(null);
-  const [currentNodes, setCurrentNodes] = useState<any[]>([]);
-  const [currentEdges, setCurrentEdges] = useState<any[]>([]);
+  const [workflowData, setWorkflowData] = useState<{ nodes: WorkflowNode[]; edges: WorkflowEdge[] } | null>(null);
+  const [currentNodes, setCurrentNodes] = useState<WorkflowNode[]>([]);
+  const [currentEdges, setCurrentEdges] = useState<WorkflowEdge[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [isWorkflowReady, setIsWorkflowReady] = useState(false);
   const router = useRouter();
@@ -32,11 +33,11 @@ export default function NewWorkflowPage() {
   }, [currentNodes, isWorkflowReady]);
   
   // Callback handlers that properly update state
-  const handleNodesChange = useCallback((nodes: any[]) => {
+  const handleNodesChange = useCallback((nodes: WorkflowNode[]) => {
     setCurrentNodes(nodes);
   }, []);
   
-  const handleEdgesChange = useCallback((edges: any[]) => {
+  const handleEdgesChange = useCallback((edges: WorkflowEdge[]) => {
     setCurrentEdges(edges);
   }, []);
 
@@ -75,7 +76,7 @@ export default function NewWorkflowPage() {
         return;
       }
 
-      const data = await response.json();
+      await response.json(); // Workflow created successfully
       router.push('/workflows');
     } catch (error) {
       console.error('Error saving workflow:', error);
@@ -209,13 +210,13 @@ export default function NewWorkflowPage() {
                   onClick={() => setAIPrompt("When a contact is created in GoHighLevel, send them a welcome email")}
                   className="w-full text-left px-3 py-2 text-sm bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors"
                 >
-                  "When a contact is created in GoHighLevel, send them a welcome email"
+                  &quot;When a contact is created in GoHighLevel, send them a welcome email&quot;
                 </button>
                 <button
                   onClick={() => setAIPrompt("Every day at 9am, check for new opportunities and create tasks")}
                   className="w-full text-left px-3 py-2 text-sm bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors"
                 >
-                  "Every day at 9am, check for new opportunities and create tasks"
+                  &quot;Every day at 9am, check for new opportunities and create tasks&quot;
                 </button>
               </div>
             </div>

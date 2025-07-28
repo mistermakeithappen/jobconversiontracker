@@ -320,7 +320,7 @@ export default function IntegrationsPage() {
           <div className="mt-12 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-8 border border-blue-100">
             <h2 className="text-xl font-semibold text-gray-900 mb-2">Request an Integration</h2>
             <p className="text-gray-600 mb-4">
-              Don't see the integration you need? Let us know what tools you'd like to connect.
+              Don&apos;t see the integration you need? Let us know what tools you&apos;d like to connect.
             </p>
             <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
               Request Integration
@@ -554,7 +554,7 @@ export default function IntegrationsPage() {
               <div>
                 <h3 className="font-medium text-blue-900">About API Keys</h3>
                 <p className="text-blue-700 text-sm mt-1">
-                  Your API keys are encrypted and stored securely. They're only used for AI features like receipt processing. 
+                  Your API keys are encrypted and stored securely. They&apos;re only used for AI features like receipt processing. 
                   You can add multiple keys per provider for different purposes.
                 </p>
               </div>

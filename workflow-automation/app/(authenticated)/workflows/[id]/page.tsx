@@ -3,10 +3,11 @@
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useState, useCallback, useEffect } from 'react';
-import { ArrowLeft, Save, Play, Settings, Sparkles, Loader2, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
-import { useRouter, useParams } from 'next/navigation';
+import { ArrowLeft, Save, Play, Settings, Loader2, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
+import { useParams } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
 import { useMockAuth } from '@/lib/auth/mock-auth';
+import { WorkflowNode, WorkflowEdge, ExecutionResult } from '@/types/api';
 
 // Dynamic import to avoid SSR issues with React Flow
 const WorkflowBuilder = dynamic(
@@ -22,16 +23,15 @@ const supabase = createClient(
 export default function EditWorkflowPage() {
   const params = useParams();
   const workflowId = params.id as string;
-  const [workflow, setWorkflow] = useState<any>(null);
+  const [workflow, setWorkflow] = useState<{ id: string; name: string; definition: { nodes: WorkflowNode[]; edges: WorkflowEdge[] }; status: string } | null>(null);
   const [workflowName, setWorkflowName] = useState('');
-  const [currentNodes, setCurrentNodes] = useState<any[]>([]);
-  const [currentEdges, setCurrentEdges] = useState<any[]>([]);
+  const [currentNodes, setCurrentNodes] = useState<WorkflowNode[]>([]);
+  const [currentEdges, setCurrentEdges] = useState<WorkflowEdge[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
-  const [executionStatus, setExecutionStatus] = useState<any>(null);
-  const [recentExecutions, setRecentExecutions] = useState<any[]>([]);
-  const router = useRouter();
-  const { userId } = useMockAuth();
+  const [executionStatus, setExecutionStatus] = useState<ExecutionResult | null>(null);
+  const [recentExecutions, setRecentExecutions] = useState<ExecutionResult[]>([]);
+  const { } = useMockAuth(); // Auth context available but userId not needed here
 
   // Load workflow data
   useEffect(() => {
