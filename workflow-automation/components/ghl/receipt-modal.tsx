@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { X, Plus, Trash2, Edit2, Save, Receipt, DollarSign, Clock, User } from 'lucide-react';
+import { useMockAuth } from '@/lib/auth/mock-auth';
 
 interface Receipt {
   id: string;
@@ -100,6 +101,7 @@ const PAYMENT_METHODS = [
 ];
 
 export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: ReceiptModalProps) {
+  const { user } = useMockAuth();
   const [activeTab, setActiveTab] = useState<'receipts' | 'time' | 'commissions'>('receipts');
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([]);
@@ -117,6 +119,7 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
   const [editingTimeId, setEditingTimeId] = useState<string | null>(null);
   const [editingCommissionId, setEditingCommissionId] = useState<string | null>(null);
   const [commissionLoading, setCommissionLoading] = useState(false);
+  const [currentUserGhlName, setCurrentUserGhlName] = useState<string>('');
   const [formData, setFormData] = useState({
     vendor_name: '',
     description: '',
@@ -165,6 +168,7 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
     fetchCommissions();
     fetchGHLUsers();
     fetchPaymentAssignments();
+    fetchCurrentUserGhlName();
   }, [opportunity.id]);
 
   useEffect(() => {
@@ -201,6 +205,27 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
       }
     } catch (error) {
       console.error('Error fetching GHL users:', error);
+    }
+  };
+
+  const fetchCurrentUserGhlName = async () => {
+    try {
+      const response = await fetch('/api/user-payment-structures');
+      const data = await response.json();
+      if (response.ok && data.structures && data.structures.length > 0) {
+        // Find the current user's GHL name
+        const currentUserStructure = data.structures[0]; // Assuming the first one is the current user
+        if (currentUserStructure.ghl_user_name) {
+          setCurrentUserGhlName(currentUserStructure.ghl_user_name);
+          // Update the form data with the user name
+          setFormData(prev => ({
+            ...prev,
+            submitted_by: currentUserStructure.ghl_user_name
+          }));
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching current user GHL name:', error);
     }
   };
 
@@ -612,7 +637,7 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
       receipt_date: receipt.receipt_date,
       receipt_number: receipt.receipt_number || '',
       notes: receipt.notes || '',
-      submitted_by: receipt.submitted_by || '',
+      submitted_by: receipt.submitted_by || currentUserGhlName || user?.name || '',
       payment_method: receipt.payment_method || 'Credit Card',
       last_four_digits: receipt.last_four_digits || '',
       reimbursable: receipt.reimbursable || false
@@ -630,7 +655,7 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
       receipt_date: new Date().toISOString().split('T')[0],
       receipt_number: '',
       notes: '',
-      submitted_by: '',
+      submitted_by: currentUserGhlName || user?.name || '',
       payment_method: 'Credit Card',
       last_four_digits: '',
       reimbursable: false
@@ -730,7 +755,7 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
           receipt_date: data.receiptData.receipt_date || new Date().toISOString().split('T')[0],
           receipt_number: data.receiptData.receipt_number || '',
           notes: '',
-          submitted_by: '',
+          submitted_by: currentUserGhlName || user?.name || 'Unknown User',
           payment_method: 'Credit Card',
           last_four_digits: '',
           reimbursable: false
