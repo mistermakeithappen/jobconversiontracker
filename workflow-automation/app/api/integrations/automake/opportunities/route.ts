@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
     const pipelineId = searchParams.get('pipelineId') || undefined;
     
     // Get user's GHL integration
-    const { data: integration, error } = await supabase
+    let { data: integration, error } = await supabase
       .from('integrations')
       .select('*')
       .eq('user_id', userId)
