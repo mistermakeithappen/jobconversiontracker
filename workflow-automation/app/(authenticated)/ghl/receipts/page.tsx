@@ -6,14 +6,21 @@ import Link from 'next/link';
 
 interface Receipt {
   id: string;
-  vendor: string;
+  vendor_name: string;
   amount: number;
-  date: string;
+  receipt_date?: string;
+  category?: string;
   is_reimbursable?: boolean;
   opportunity_id?: string;
   opportunity_name?: string;
   created_at: string;
   image_url?: string;
+  description?: string;
+  receipt_number?: string;
+  notes?: string;
+  submitted_by?: string;
+  payment_method?: string;
+  last_four_digits?: string;
 }
 
 export default function GHLReceiptsPage() {
@@ -172,7 +179,7 @@ export default function GHLReceiptsPage() {
   if (connectionStatus === 'disconnected') {
     return (
       <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
-        <Receipt className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+        <ReceiptIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" />
         <h3 className="text-xl font-semibold text-gray-900 mb-2">Connect GoHighLevel for receipt processing</h3>
         <p className="text-gray-500 mb-6 max-w-md mx-auto">
           Link your GHL account to enable AI-powered receipt processing via SMS
@@ -355,7 +362,7 @@ export default function GHLReceiptsPage() {
           </div>
         ) : receipts.length === 0 ? (
           <div className="text-center py-12">
-            <Receipt className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+            <ReceiptIcon className="w-12 h-12 text-gray-400 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">No Receipts Yet</h3>
             <p className="text-gray-600 mb-4">
               Start by testing the AI processing or have team members send receipts via SMS
