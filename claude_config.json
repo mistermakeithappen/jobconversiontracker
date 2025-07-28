@@ -1,0 +1,24 @@
+{
+  "mcpServers": {
+    "ref": {
+      "command": "npx",
+      "args": [
+        "mcp-remote@0.1.0-0",
+        "https://api.ref.tools/mcp",
+        "--header",
+        "x-ref-api-key:ref-2d993b8896ac2f8a93a8"
+      ]
+    },
+    "supabase": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@supabase/mcp-server-supabase@latest",
+        "--project-ref=hmulhwnftlsezkjuflxm"
+      ],
+      "env": {
+        "SUPABASE_ACCESS_TOKEN": "sbp_795e7a98e3b3e4a8489fa24237de504aa1ce0416"
+      }
+    }
+  }
+}
