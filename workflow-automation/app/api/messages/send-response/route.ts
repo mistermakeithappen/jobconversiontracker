@@ -1,12 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { getServiceSupabase } from '@/lib/auth/production-auth-server';
 import { createGHLClient } from '@/lib/integrations/gohighlevel/client';
 import { encrypt } from '@/lib/utils/encryption';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 interface SendResponseRequest {
   processingLogId: string;
@@ -16,6 +11,8 @@ interface SendResponseRequest {
 }
 
 export async function POST(request: NextRequest) {
+  const supabase = getServiceSupabase();
+  
   try {
     const {
       processingLogId,
@@ -44,11 +41,11 @@ export async function POST(request: NextRequest) {
       }, { status: 404 });
     }
     
-    // Get the user's GHL integration
+    // Get the organization's GHL integration
     const { data: integration, error: integrationError } = await supabase
       .from('integrations')
       .select('*')
-      .eq('user_id', processingLog.user_id)
+      .eq('organization_id', processingLog.organization_id)
       .eq('type', 'gohighlevel')
       .single();
     

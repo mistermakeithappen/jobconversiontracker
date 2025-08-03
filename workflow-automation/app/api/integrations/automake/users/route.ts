@@ -1,13 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import { mockAuthServer } from '@/lib/auth/mock-auth-server';
+import { requireAuth, getServiceSupabase } from '@/lib/auth/production-auth-server';
+import { getUserOrganization } from '@/lib/auth/organization-helper';
 import { createGHLClient } from '@/lib/integrations/gohighlevel/client';
-import { encrypt } from '@/lib/utils/encryption';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+import { encrypt, decrypt } from '@/lib/utils/encryption';
 
 interface GHLUser {
   id: string;
@@ -22,13 +17,19 @@ interface GHLUser {
 
 export async function GET(request: NextRequest) {
   try {
-    const { userId } = mockAuthServer();
+    const { userId } = await requireAuth(request);
+    const organization = await getUserOrganization(userId);
+    const supabase = getServiceSupabase();
     
-    // Get user's GHL integration
+    if (!organization) {
+      return NextResponse.json({ error: 'No organization found' }, { status: 404 });
+    }
+    
+    // Get organization's GHL integration
     const { data: integration, error: integrationError } = await supabase
       .from('integrations')
       .select('*')
-      .eq('user_id', userId)
+      .eq('organization_id', organization.organizationId)
       .eq('type', 'gohighlevel')
       .eq('is_active', true)
       .single();
@@ -50,9 +51,12 @@ export async function GET(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // Create GHL client with token refresh callback
+    // Create GHL client with token refresh callback and MCP if available
+    const mcpToken = integration.mcp_enabled && integration.mcp_token_encrypted ? 
+      decrypt(integration.mcp_token_encrypted) : undefined;
+    
     const ghlClient = await createGHLClient(
-      integration.config.encryptedTokens,
+      integration.config?.encryptedTokens || '',
       async (newTokens) => {
         const encryptedTokens = encrypt(JSON.stringify(newTokens));
         await supabase
@@ -64,11 +68,16 @@ export async function GET(request: NextRequest) {
               lastTokenRefresh: new Date().toISOString()
             }
           })
-          .eq('id', integration.id);
-      }
+          .eq('id', integration.id)
+          .eq('organization_id', organization.organizationId);
+      },
+      mcpToken
     );
 
     console.log('Fetching users from GoHighLevel API...');
+    if (ghlClient.hasMCP()) {
+      console.log('Using MCP-enhanced client for faster operations');
+    }
 
     try {
       // Try to get users from the location
@@ -82,13 +91,13 @@ export async function GET(request: NextRequest) {
       }
 
       // Check if we have the users.readonly scope
-      const hasUsersScope = integration.config.scope?.includes('users.readonly');
+      const hasUsersScope = integration.config?.scope?.includes('users.readonly');
       if (!hasUsersScope) {
         return NextResponse.json({
           users: [],
           isRealData: false,
           error: 'Users endpoint requires users.readonly scope. Please reconnect GoHighLevel to grant additional permissions.',
-          currentScope: integration.config.scope,
+          currentScope: integration.config?.scope,
           requiredScope: 'users.readonly'
         });
       }

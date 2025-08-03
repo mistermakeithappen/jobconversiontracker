@@ -165,25 +165,6 @@ export function ContactSyncStatus({ integrationId }: ContactSyncStatusProps) {
         </div>
       )}
 
-      {/* Feature Info */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <div className="flex items-start space-x-3">
-          <MessageSquare className="w-5 h-5 text-blue-600 mt-0.5" />
-          <div>
-            <h4 className="text-sm font-medium text-blue-800">Receipt Processing Ready</h4>
-            <p className="text-sm text-blue-700 mt-1">
-              Synced contacts enable automatic receipt processing from incoming messages. 
-              When users text receipt images, the system will:
-            </p>
-            <ul className="text-sm text-blue-700 mt-2 ml-4 list-disc">
-              <li>Identify the sender using phone number lookup</li>
-              <li>Process receipt images with AI</li>
-              <li>Match expenses to opportunities automatically</li>
-              <li>Send confirmation messages via GoHighLevel</li>
-            </ul>
-          </div>
-        </div>
-      </div>
 
       {/* Sync History */}
       {syncJobs.length > 1 && (

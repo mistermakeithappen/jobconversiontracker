@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useAuth } from '@/lib/auth/auth-context';
 import { 
   Building2, 
   Users, 
@@ -13,7 +14,9 @@ import {
   Clock,
   TrendingUp,
   MessageSquare,
-  Unlink
+  Unlink,
+  Brain,
+  RefreshCw
 } from 'lucide-react';
 
 interface Integration {
@@ -24,11 +27,17 @@ interface Integration {
   lastSync?: string;
   contactCount?: number;
   opportunityCount?: number;
+  analyzedPipelines?: number;
+  lastPipelineAnalysis?: string;
 }
 
 export default function GHLOverviewPage() {
+  const { user } = useAuth();
   const [integration, setIntegration] = useState<Integration | null>(null);
   const [loading, setLoading] = useState(true);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [showAnalysisDetails, setShowAnalysisDetails] = useState(false);
+  const [analysisDetails, setAnalysisDetails] = useState<any[]>([]);
   const [stats, setStats] = useState({
     totalContacts: 0,
     totalOpportunities: 0,
@@ -36,34 +45,129 @@ export default function GHLOverviewPage() {
     recentSMSCount: 0
   });
 
+  // Helper function to get auth headers
+  const getAuthHeaders = async () => {
+    // Since we're using httpOnly cookies, we don't need to send auth headers
+    // The cookies will be automatically included in the request
+    return {
+      'Content-Type': 'application/json'
+    };
+  };
+
   useEffect(() => {
     fetchIntegrationStatus();
   }, []);
+  
+  // Auto-fetch location details if missing (with flag to prevent loops)
+  const [hasFetchedDetails, setHasFetchedDetails] = useState(false);
+  
+  useEffect(() => {
+    if (integration?.status === 'connected' && 
+        integration?.config?.locationId && 
+        !integration?.config?.locationName &&
+        !loading &&
+        !hasFetchedDetails) {
+      setHasFetchedDetails(true);
+      fetchLocationDetails();
+    }
+  }, [integration, loading, hasFetchedDetails]);
+
+  // Redirect to login on auth error
+  useEffect(() => {
+    if (integration?.status === 'error' && 
+        (integration.name === 'Authentication required' || 
+         integration.name === 'Token expired')) {
+      window.location.href = '/login';
+    }
+  }, [integration]);
 
   useEffect(() => {
     if (integration?.status === 'connected') {
       fetchStats();
+      if (showAnalysisDetails) {
+        fetchAnalysisDetails();
+      }
     }
-  }, [integration]);
+  }, [integration, showAnalysisDetails]);
+
+  const fetchLocationDetails = async () => {
+    if (!integration?.id || !integration?.config?.locationId) return;
+    
+    try {
+      const response = await fetch('/api/integrations/automake/fetch-details', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          integrationId: integration.id,
+          userId: user?.id,
+          locationId: integration.config.locationId,
+          companyId: integration.config.companyId
+        })
+      });
+      
+      if (response.ok) {
+        // Refresh the integration status to get the updated name
+        setTimeout(() => fetchIntegrationStatus(), 1000);
+      }
+    } catch (error) {
+      console.error('Error fetching location details:', error);
+    }
+  };
 
   const fetchIntegrationStatus = async () => {
     try {
       const response = await fetch('/api/integrations/automake/status');
-      const data = await response.json();
+      
+      let data;
+      
+      if (!response.ok) {
+        console.error('Status API error:', response.status, response.statusText);
+        try {
+          data = await response.json();
+          console.error('Error response:', data);
+        } catch {
+          const text = await response.text();
+          console.error('Error response text:', text);
+          data = { error: text };
+        }
+        
+        // Handle authentication errors
+        if (response.status === 401) {
+          setIntegration({
+            id: 'auth-error',
+            status: 'error',
+            name: 'Authentication required',
+            config: {}
+          });
+          return;
+        }
+      } else {
+        data = await response.json();
+      }
+      
       if (response.ok && data.connected) {
+        const config = data.integration?.config || {};
+        const pipelineStages = data.integration?.pipeline_completion_stages;
+        
         setIntegration({
           id: data.integrationId || 'ghl-integration',
           status: 'connected',
           name: 'GoHighLevel',
-          config: data.integration?.config || {},
-          lastSync: new Date().toISOString()
+          config: config,
+          lastSync: config.lastTokenRefresh || new Date().toISOString(),
+          analyzedPipelines: pipelineStages && typeof pipelineStages === 'object' ? 
+            Object.keys(pipelineStages).length : 0,
+          lastPipelineAnalysis: data.integration?.last_pipeline_analysis
         });
       } else {
         setIntegration({
           id: 'ghl-integration',
           status: 'disconnected',
           name: 'GoHighLevel',
-          config: {}
+          config: {},
+          analyzedPipelines: 0
         });
       }
     } catch (error) {
@@ -72,7 +176,8 @@ export default function GHLOverviewPage() {
         id: 'ghl-integration',
         status: 'disconnected',
         name: 'GoHighLevel',
-        config: {}
+        config: {},
+        analyzedPipelines: 0
       });
     } finally {
       setLoading(false);
@@ -83,7 +188,7 @@ export default function GHLOverviewPage() {
     try {
       // Only fetch stats if we're connected
       if (integration?.status !== 'connected') return;
-      
+
       // Fetch various stats from different endpoints
       const [contactsRes, opportunitiesRes] = await Promise.all([
         fetch('/api/integrations/automake/contacts'),
@@ -106,13 +211,19 @@ export default function GHLOverviewPage() {
 
   const handleConnect = async () => {
     try {
-      const response = await fetch('/api/integrations/automake/connect');
+      const response = await fetch('/api/integrations/automake/connect', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
       const data = await response.json();
 
       if (response.ok && data.authUrl) {
         window.location.href = data.authUrl;
       } else {
-        alert('Failed to initiate connection to GoHighLevel');
+        console.error('Failed to connect:', data);
+        alert(data.error || 'Failed to initiate connection to GoHighLevel');
       }
     } catch (error) {
       console.error('Error connecting to GHL:', error);
@@ -139,6 +250,119 @@ export default function GHLOverviewPage() {
     } catch (error) {
       console.error('Error disconnecting from GHL:', error);
       alert('Error disconnecting from GoHighLevel');
+    }
+  };
+
+  const fetchAnalysisDetails = async () => {
+    if (!integration?.id) return;
+    
+    // Reset state first
+    console.log('Resetting analysisDetails state');
+    setAnalysisDetails([]);
+    
+    try {
+      const headers = await getAuthHeaders();
+      
+      // First run debug to see what's in the database
+      const debugResponse = await fetch(`/api/debug/pipeline-data?integrationId=${integration.id}`, { headers });
+      if (debugResponse.ok) {
+        const debugData = await debugResponse.json();
+        console.log('=== DEBUG: Pipeline Analysis Data ===');
+        console.log('User ID:', debugData.userId);
+        console.log('Integration ID:', debugData.integrationId);
+        console.log('Integration exists:', debugData.integration);
+        console.log('All stages in DB:', debugData.allStages);
+        console.log('Integration stages:', debugData.integrationStages);
+        console.log('Completion stages:', debugData.completionStages);
+        console.log('=======================================');
+      }
+
+      // Then try to fetch analysis details
+      const response = await fetch(`/api/pipelines/analysis-details?integrationId=${integration.id}`, { headers });
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Analysis details response:', data);
+        console.log('Setting analysisDetails to:', data.pipelines);
+        console.log('analysisDetails length:', data.pipelines?.length || 0);
+        
+        // Force a fresh array to ensure React recognizes the state change
+        const freshPipelines = Array.isArray(data.pipelines) ? [...data.pipelines] : [];
+        console.log('Fresh pipelines array:', freshPipelines);
+        
+        // If we have data, set it directly
+        if (freshPipelines.length > 0) {
+          console.log('Setting real pipeline data:', freshPipelines);
+          setAnalysisDetails(freshPipelines);
+        } else {
+          // If no data returned, create a fallback message
+          console.log('No pipeline data returned, creating fallback');
+          const fallbackData = [{
+            pipeline_id: 'fallback',
+            pipeline_name: 'Analysis Complete',
+            analyzed_at: new Date().toISOString(),
+            completion_stages: [{
+              stage_id: 'no-stage',
+              stage_name: 'No Results',
+              confidence: 0,
+              reasoning: 'Pipeline analysis completed but no fulfillment completion stages were identified. The AI may have determined that the available stages do not indicate completed work delivery.'
+            }]
+          }];
+          setAnalysisDetails(fallbackData);
+        }
+      } else {
+        console.error('Analysis details API failed:', response.status, await response.text());
+      }
+    } catch (error) {
+      console.error('Error fetching analysis details:', error);
+    }
+  };
+
+  const analyzeCompletionStages = async () => {
+    if (!integration?.id) return;
+    
+    setAnalyzing(true);
+    try {
+      const headers = await getAuthHeaders();
+      
+      // First, fetch pipelines
+      const pipelinesRes = await fetch('/api/integrations/automake/pipelines', { headers });
+      if (!pipelinesRes.ok) {
+        throw new Error('Failed to fetch pipelines');
+      }
+      
+      const pipelinesData = await pipelinesRes.json();
+      
+      // Then analyze the stages
+      const analyzeRes = await fetch('/api/pipelines/analyze-stages', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          pipelines: pipelinesData.pipelines,
+          integrationId: integration.id
+        })
+      });
+      
+      if (!analyzeRes.ok) {
+        const error = await analyzeRes.json();
+        throw new Error(error.error || 'Failed to analyze pipeline stages');
+      }
+      
+      const result = await analyzeRes.json();
+      
+      // Show success message and refresh integration status
+      alert(`Successfully analyzed ${result.analyzed_count} pipelines!`);
+      await fetchIntegrationStatus(); // Refresh to show updated analysis count
+      await fetchAnalysisDetails(); // Fetch the latest analysis details
+      
+    } catch (error) {
+      console.error('Error analyzing pipeline stages:', error);
+      if (error instanceof Error && error.message.includes('OpenAI API key not found')) {
+        alert('Please add your OpenAI API key in Settings before analyzing pipelines.');
+      } else {
+        alert(error instanceof Error ? error.message : 'Failed to analyze pipeline stages');
+      }
+    } finally {
+      setAnalyzing(false);
     }
   };
 
@@ -257,7 +481,42 @@ export default function GHLOverviewPage() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div>
             <p className="text-sm text-gray-500">Account Name</p>
-            <p className="text-lg font-medium text-gray-900">{integration?.config?.locationName || 'Connected Account'}</p>
+            <div className="flex items-center space-x-2">
+              <p className="text-lg font-medium text-gray-900">{integration?.config?.locationName || 'Connected Account'}</p>
+              {!integration?.config?.locationName && integration?.config?.locationId && (
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={async () => {
+                      try {
+                        const response = await fetch('/api/integrations/automake/fetch-details', {
+                          method: 'POST',
+                          headers: {
+                            'Content-Type': 'application/json',
+                          },
+                          body: JSON.stringify({
+                            integrationId: integration.id,
+                            locationId: integration.config.locationId,
+                            companyId: integration.config.companyId
+                          })
+                        });
+                        
+                        if (response.ok) {
+                          // Refresh the page to show the updated name
+                          window.location.reload();
+                        } else {
+                          console.error('Failed to fetch details');
+                        }
+                      } catch (error) {
+                        console.error('Error fetching details:', error);
+                      }
+                    }}
+                    className="text-xs text-blue-600 hover:text-blue-700 underline"
+                  >
+                    Fetch Name
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
           <div>
             <p className="text-sm text-gray-500">Location ID</p>
@@ -270,7 +529,127 @@ export default function GHLOverviewPage() {
             </p>
           </div>
         </div>
+        
+        {/* Pipeline Analysis Status */}
+        {integration?.status === 'connected' && (
+          <div className="mt-4 pt-4 border-t border-gray-100">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <Brain className="w-4 h-4 text-purple-500" />
+                <span className="text-sm font-medium text-gray-700">
+                  AI Pipeline Analysis
+                </span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => setShowAnalysisDetails(!showAnalysisDetails)}
+                  className="text-sm text-blue-600 hover:text-blue-700"
+                >
+                  View Details
+                </button>
+                <button
+                  onClick={async () => {
+                    if (integration?.id) {
+                      try {
+                        const headers = await getAuthHeaders();
+                        const response = await fetch(`/api/debug/pipeline-data?integrationId=${integration.id}`, { headers });
+                        const data = await response.json();
+                        console.log('DEBUG DATA:', data);
+                        alert('Debug data logged to console - check F12 > Console');
+                      } catch (error) {
+                        console.error('Debug error:', error);
+                        alert('Failed to fetch debug data');
+                      }
+                    }
+                  }}
+                  className="text-sm text-gray-600 hover:text-gray-700"
+                >
+                  Debug
+                </button>
+                <button
+                  onClick={analyzeCompletionStages}
+                  disabled={analyzing}
+                  className="inline-flex items-center space-x-1 text-sm text-purple-600 hover:text-purple-700 disabled:opacity-50"
+                >
+                  {analyzing ? (
+                    <>
+                      <RefreshCw className="w-3 h-3 animate-spin" />
+                      <span>Analyzing...</span>
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="w-3 h-3" />
+                      <span>Re-analyze</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+            <p className="text-sm text-gray-500 mt-1">
+              {integration?.analyzedPipelines || 0} pipelines analyzed for commission-eligible completion stages
+              {integration?.lastPipelineAnalysis && (
+                <span className="block text-xs text-gray-400 mt-0.5">
+                  Last analyzed: {new Date(integration.lastPipelineAnalysis).toLocaleString()}
+                </span>
+              )}
+            </p>
+          </div>
+        )}
       </div>
+
+      {/* Pipeline Analysis Details */}
+      {showAnalysisDetails && integration?.status === 'connected' && (
+        <div className="bg-white rounded-xl border border-gray-200 p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Pipeline Analysis Results</h3>
+          
+          {(() => {
+            console.log('Rendering analysis details, length:', analysisDetails.length);
+            console.log('Analysis details data:', analysisDetails);
+            return null;
+          })()}
+          
+          {analysisDetails.length === 0 ? (
+            <div className="text-center py-8">
+              <Brain className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+              <p className="text-gray-500">No pipeline analysis results found.</p>
+              <p className="text-sm text-gray-400 mt-2">
+                Click "Re-analyze" to analyze your pipelines for commission-eligible stages.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {analysisDetails.map((pipeline) => (
+                <div key={pipeline.pipeline_id} className="border border-gray-200 rounded-lg p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="font-medium text-gray-900">{pipeline.pipeline_name}</h4>
+                    <span className="text-xs text-gray-500">
+                      {pipeline.analyzed_at ? new Date(pipeline.analyzed_at).toLocaleString() : 'N/A'}
+                    </span>
+                  </div>
+                  
+                  {pipeline.completion_stages.map((stage: any, index: number) => (
+                    <div key={stage.stage_id} className="bg-green-50 border border-green-200 rounded-lg p-3 mb-2">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="font-medium text-green-800">
+                          🎯 Commission Stage: "{stage.stage_name}"
+                        </span>
+                        <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded">
+                          {Math.round((stage.confidence || 0) * 100)}% confidence
+                        </span>
+                      </div>
+                      {stage.reasoning && (
+                        <p className="text-sm text-green-700 bg-green-100 p-2 rounded">
+                          <strong>AI Reasoning:</strong> {stage.reasoning}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Statistics */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">

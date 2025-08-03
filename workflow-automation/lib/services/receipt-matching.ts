@@ -1,10 +1,5 @@
-import { createClient } from '@supabase/supabase-js';
+import { getServiceSupabase } from '@/lib/auth/production-auth-server';
 import OpenAI from 'openai';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 export interface ReceiptData {
   vendor_name: string;
@@ -25,25 +20,27 @@ export interface JobMatch {
 }
 
 export async function findMatchingJobs(
-  userId: string, 
+  organizationId: string, 
   receiptData: ReceiptData, 
   apiKey: string,
   contactPhone?: string
 ): Promise<JobMatch[]> {
+  const supabase = getServiceSupabase();
+  
   try {
-    // Check if this phone number belongs to a GHL user (internal team member)
+    // Check if this phone number belongs to a team member
     let filterGhlUserId: string | null = null;
     
     if (contactPhone) {
-      const { data: ghlUser } = await supabase
-        .from('user_payment_structures')
+      const { data: teamMember } = await supabase
+        .from('team_members')
         .select('ghl_user_id')
-        .eq('user_id', userId)
-        .or(`ghl_user_phone.eq.${contactPhone},phone.eq.${contactPhone}`)
+        .eq('organization_id', organizationId)
+        .eq('phone', contactPhone)
         .single();
       
-      if (ghlUser) {
-        filterGhlUserId = ghlUser.ghl_user_id;
+      if (teamMember && teamMember.ghl_user_id) {
+        filterGhlUserId = teamMember.ghl_user_id;
         console.log('Found GHL user ID from phone:', filterGhlUserId);
       } else {
         // Not an internal team member - don't process
@@ -55,8 +52,8 @@ export async function findMatchingJobs(
     // Step 1: Get all pipeline stages from opportunities
     let query = supabase
       .from('opportunity_cache')
-      .select('pipeline_stage_name')
-      .eq('user_id', userId)
+      .select('stage')
+      .eq('organization_id', organizationId)
       .eq('status', 'open');
     
     // Filter by assigned user (required for internal functions)
@@ -67,7 +64,7 @@ export async function findMatchingJobs(
 
     const { data: stageData } = await query;
 
-    const uniqueStages = [...new Set(stageData?.map(s => s.pipeline_stage_name) || [])];
+    const uniqueStages = [...new Set(stageData?.map(s => s.stage) || [])];
     console.log('Available pipeline stages:', uniqueStages);
 
     // Step 2: Use AI to identify active job stages
@@ -78,9 +75,9 @@ export async function findMatchingJobs(
     let oppQuery = supabase
       .from('opportunity_cache')
       .select('*')
-      .eq('user_id', userId)
+      .eq('organization_id', organizationId)
       .eq('status', 'open')
-      .in('pipeline_stage_name', activeStages.length > 0 ? activeStages : uniqueStages);
+      .in('stage', activeStages.length > 0 ? activeStages : uniqueStages);
     
     // Filter by assigned user (required for internal functions)
     if (filterGhlUserId) {
@@ -108,25 +105,27 @@ export async function findMatchingJobs(
 }
 
 export async function findCompletedJobMatches(
-  userId: string, 
+  organizationId: string, 
   receiptData: ReceiptData, 
   apiKey: string,
   contactPhone?: string
 ): Promise<JobMatch[]> {
+  const supabase = getServiceSupabase();
+  
   try {
-    // Check if this phone number belongs to a GHL user (internal team member)
+    // Check if this phone number belongs to a team member
     let filterGhlUserId: string | null = null;
     
     if (contactPhone) {
-      const { data: ghlUser } = await supabase
-        .from('user_payment_structures')
+      const { data: teamMember } = await supabase
+        .from('team_members')
         .select('ghl_user_id')
-        .eq('user_id', userId)
-        .or(`ghl_user_phone.eq.${contactPhone},phone.eq.${contactPhone}`)
+        .eq('organization_id', organizationId)
+        .eq('phone', contactPhone)
         .single();
       
-      if (ghlUser) {
-        filterGhlUserId = ghlUser.ghl_user_id;
+      if (teamMember && teamMember.ghl_user_id) {
+        filterGhlUserId = teamMember.ghl_user_id;
         console.log('Found GHL user ID from phone:', filterGhlUserId);
       } else {
         // Not an internal team member - don't process
@@ -138,8 +137,8 @@ export async function findCompletedJobMatches(
     // Get all pipeline stages from opportunities assigned to this GHL user
     let query = supabase
       .from('opportunity_cache')
-      .select('pipeline_stage_name')
-      .eq('user_id', userId);
+      .select('stage')
+      .eq('organization_id', organizationId);
     
     // Filter by assigned user (required for internal functions)
     if (filterGhlUserId) {
@@ -149,7 +148,7 @@ export async function findCompletedJobMatches(
 
     const { data: stageData } = await query;
 
-    const uniqueStages = [...new Set(stageData?.map(s => s.pipeline_stage_name) || [])];
+    const uniqueStages = [...new Set(stageData?.map(s => s.stage) || [])];
     
     // Use AI to identify completed job stages
     const completedStages = await identifyCompletedJobStages(uniqueStages, apiKey);
@@ -161,8 +160,8 @@ export async function findCompletedJobMatches(
     let oppQuery = supabase
       .from('opportunity_cache')
       .select('*')
-      .eq('user_id', userId)
-      .in('pipeline_stage_name', completedStages)
+      .eq('organization_id', organizationId)
+      .in('stage', completedStages)
       .order('ghl_updated_at', { ascending: false })
       .limit(20); // Recent completed jobs
     
@@ -253,9 +252,9 @@ async function aiRankOpportunities(opportunities: any[], receiptData: ReceiptDat
   // Prepare opportunity summaries
   const oppSummaries = opportunities.map((opp, idx) => ({
     index: idx,
-    name: opp.name,
+    name: opp.title,
     contact: opp.contact_name,
-    stage: opp.pipeline_stage_name,
+    stage: opp.stage,
     value: opp.monetary_value,
     lastUpdate: opp.ghl_updated_at
   }));
@@ -297,7 +296,7 @@ Only include matches with confidence > 40. Maximum 5 matches.`
       const opp = opportunities[match.index];
       return {
         opportunityId: opp.opportunity_id,
-        opportunityName: opp.name,
+        opportunityName: opp.title,
         contactName: opp.contact_name,
         confidence: Math.min(100, Math.max(0, match.confidence)),
         reason: match.reason || 'AI matched based on context'
@@ -318,10 +317,10 @@ function simpleFallbackMatching(opportunities: any[], receiptData: ReceiptData):
     const reasons: string[] = ['In active job stage'];
 
     // Add some basic matching logic
-    if (receiptData.vendor_name && opp.name) {
+    if (receiptData.vendor_name && opp.title) {
       const similarity = calculateStringSimilarity(
         receiptData.vendor_name.toLowerCase(),
-        opp.name.toLowerCase()
+        opp.title.toLowerCase()
       );
       if (similarity > 0.3) {
         confidence += similarity * 30;
@@ -331,7 +330,7 @@ function simpleFallbackMatching(opportunities: any[], receiptData: ReceiptData):
 
     matches.push({
       opportunityId: opp.opportunity_id,
-      opportunityName: opp.name,
+      opportunityName: opp.title,
       contactName: opp.contact_name,
       confidence: Math.round(confidence),
       reason: reasons.join(', ')

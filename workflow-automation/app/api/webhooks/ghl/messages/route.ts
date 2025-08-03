@@ -1,10 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+import { getServiceSupabase } from '@/lib/auth/production-auth-server';
 
 interface GHLMessageWebhook {
   type: string;
@@ -88,6 +83,8 @@ export async function POST(request: NextRequest) {
   console.log('=== GHL WEBHOOK RECEIVED ===');
   console.log('Headers:', Object.fromEntries(request.headers.entries()));
   
+  const supabase = getServiceSupabase();
+  
   try {
     const webhookData: GHLMessageWebhook = await request.json();
     console.log('Webhook payload:', JSON.stringify(webhookData, null, 2));
@@ -109,24 +106,25 @@ export async function POST(request: NextRequest) {
     // Extract phone number for lookup
     const phoneNumber = webhookData.contact?.phone || webhookData.message?.meta?.phoneNumber;
     
-    // Check if this phone number belongs to an internal team member (GHL user)
+    // Check if this phone number belongs to an internal team member
     if (phoneNumber) {
-      const { data: ghlUser } = await supabase
-        .from('user_payment_structures')
-        .select('ghl_user_id')
-        .or(`ghl_user_phone.eq.${phoneNumber},phone.eq.${phoneNumber}`)
+      // First check the team_members table
+      const { data: teamMember } = await supabase
+        .from('team_members')
+        .select('id, organization_id, ghl_user_id')
+        .eq('phone', phoneNumber)
         .single();
       
-      if (!ghlUser) {
+      if (!teamMember) {
         console.log('Message from non-team member phone:', phoneNumber);
         return NextResponse.json({ 
           status: 'ignored', 
           reason: 'not_internal_team_member',
-          message: 'Only messages from internal team members are processed for receipts and time tracking'
+          message: 'Only messages from internal team members are processed for receipts'
         });
       }
       
-      console.log('Message from internal team member with GHL user ID:', ghlUser.ghl_user_id);
+      console.log('Message from team member:', teamMember);
     } else {
       console.log('No phone number found in message');
       return NextResponse.json({ 
@@ -159,6 +157,21 @@ export async function POST(request: NextRequest) {
     const hasReceiptAttachments = webhookData.message?.attachments?.some(isReceiptAttachment) || false;
     const isReceiptText = isReceiptMessage(webhookData.message?.body || '');
     const hasReceipt = hasReceiptAttachments || isReceiptText;
+    
+    // Get the team member's organization
+    const { data: teamMember } = await supabase
+      .from('team_members')
+      .select('organization_id')
+      .eq('phone', phoneNumber)
+      .single();
+    
+    if (!teamMember?.organization_id) {
+      console.error('No organization found for team member');
+      return NextResponse.json({ 
+        status: 'error', 
+        reason: 'organization_not_found' 
+      }, { status: 404 });
+    }
     
     // Store the incoming message from team member
     const messageData = {
@@ -220,7 +233,8 @@ export async function POST(request: NextRequest) {
                 attachmentUrl: attachment.url,
                 contactPhone: phoneNumber,
                 userId: integration.user_id,
-                integrationId: integration.id
+                integrationId: integration.id,
+                organizationId: teamMember.organization_id
               })
             }).catch(error => {
               console.error('Error triggering receipt processing:', error);

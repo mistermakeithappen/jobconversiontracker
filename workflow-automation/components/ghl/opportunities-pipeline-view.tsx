@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { DollarSign, Receipt, TrendingUp, TrendingDown, MoreVertical, Plus, FileText, ChevronDown, Building2, Camera } from 'lucide-react';
+import { DollarSign, Receipt, TrendingUp, TrendingDown, MoreVertical, Plus, FileText, ChevronDown, Building2, Camera, User } from 'lucide-react';
 import { ReceiptModal } from './receipt-modal';
+import { getSupabaseClient } from '@/lib/auth/client';
 
 interface Opportunity {
   id: string;
@@ -22,6 +23,8 @@ interface Opportunity {
   profitMargin: number;
   createdAt: string;
   updatedAt: string;
+  assignedTo?: string;
+  assignedToName?: string;
 }
 
 interface Pipeline {
@@ -39,13 +42,17 @@ interface OpportunitiesPipelineViewProps {
   pipelines: Pipeline[];
   integrationId: string;
   onRefresh: () => void;
+  openOpportunityId?: string | null;
+  onOpportunityOpened?: () => void;
 }
 
 export function OpportunitiesPipelineView({ 
   opportunities, 
   pipelines, 
   integrationId,
-  onRefresh 
+  onRefresh,
+  openOpportunityId,
+  onOpportunityOpened
 }: OpportunitiesPipelineViewProps) {
   // Get unique pipelines from opportunities if pipelines array is empty
   const availablePipelines = pipelines.length > 0 
@@ -73,6 +80,20 @@ export function OpportunitiesPipelineView({
       setSelectedPipeline(firstPipeline);
     }
   }, [availablePipelines, selectedPipeline, pipelines.length, opportunities.length]);
+
+  // Handle opening opportunity from URL parameter
+  useEffect(() => {
+    if (openOpportunityId && opportunities.length > 0) {
+      const opportunity = opportunities.find(opp => opp.id === openOpportunityId);
+      if (opportunity) {
+        setSelectedOpportunity(opportunity);
+        setShowReceiptModal(true);
+        if (onOpportunityOpened) {
+          onOpportunityOpened();
+        }
+      }
+    }
+  }, [openOpportunityId, opportunities, onOpportunityOpened]);
   const [selectedOpportunity, setSelectedOpportunity] = useState<Opportunity | null>(null);
   const [showReceiptModal, setShowReceiptModal] = useState(false);
   const [uploadingFor, setUploadingFor] = useState<string | null>(null);
@@ -190,6 +211,9 @@ export function OpportunitiesPipelineView({
     setUploadingFor(opportunityId);
     
     try {
+      const supabase = getSupabaseClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      
       const formData = new FormData();
       formData.append('image', file);
       formData.append('opportunity_id', opportunityId);
@@ -197,6 +221,9 @@ export function OpportunitiesPipelineView({
       
       const response = await fetch('/api/receipts/ai-process', {
         method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session?.access_token}`,
+        },
         body: formData
       });
       
@@ -374,6 +401,12 @@ export function OpportunitiesPipelineView({
                           <div className="flex-1">
                             <h4 className="font-medium text-gray-900 line-clamp-1">{opportunity.name}</h4>
                             <p className="text-sm text-gray-600">{opportunity.contactName}</p>
+                            {opportunity.assignedToName && (
+                              <div className="flex items-center mt-1 text-xs text-gray-500">
+                                <User className="w-3 h-3 mr-1" />
+                                <span>{opportunity.assignedToName}</span>
+                              </div>
+                            )}
                           </div>
                           <button
                             onClick={(e) => {

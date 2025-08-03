@@ -1,29 +1,40 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { cn } from '@/lib/utils/cn';
-import { Zap, LayoutGrid, Plug, Camera, Building2, CreditCard, ChevronDown, Settings, LogOut, User } from 'lucide-react';
+import { Zap, LayoutGrid, Plug, Camera, Building2, CreditCard, ChevronDown, Settings, LogOut, User, DollarSign, MessageCircle } from 'lucide-react';
+import { useAuth } from '@/lib/auth/auth-context';
 
 const navItems = [
-  { href: '/dashboard', label: 'Dashboard', icon: LayoutGrid },
-  { href: '/workflows', label: 'Workflows', icon: Zap },
   { href: '/ghl', label: 'GoHighLevel', icon: Building2 },
+  { href: '/chatbot', label: 'Chatbot', icon: MessageCircle },
   { href: '/integrations', label: 'Integrations', icon: Plug },
   { href: '/test-receipt-ai', label: 'AI Receipt Test', icon: Camera },
 ];
 
 export default function Navbar() {
   const pathname = usePathname();
+  const router = useRouter();
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
+  const { user, organization, loading, error, logout } = useAuth();
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+      router.push('/login');
+    } catch (error) {
+      console.error('Logout failed:', error);
+    }
+  };
 
   return (
     <nav className="bg-white border-b border-gray-200 shadow-sm">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           <div className="flex items-center space-x-8">
-            <Link href="/dashboard" className="flex items-center space-x-2">
+            <Link href="/ghl" className="flex items-center space-x-2">
               <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-blue-700 rounded-lg flex items-center justify-center">
                 <Zap className="w-5 h-5 text-white" />
               </div>
@@ -66,11 +77,15 @@ export default function Navbar() {
                 className="flex items-center space-x-2 p-2 rounded-lg hover:bg-gray-50 transition-colors"
               >
                 <div className="w-9 h-9 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center text-white text-sm font-semibold shadow-sm">
-                  D
+                  {user?.fullName ? user.fullName.charAt(0).toUpperCase() : 'U'}
                 </div>
                 <div className="hidden sm:block text-left">
-                  <p className="text-sm font-medium text-gray-900">Dev User</p>
-                  <p className="text-xs text-gray-500">dev@example.com</p>
+                  <p className="text-sm font-medium text-gray-900">
+                    {loading ? 'Loading...' : (user?.fullName || 'User')}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {loading ? '...' : (user?.email || 'No email')}
+                  </p>
                 </div>
                 <ChevronDown className={cn(
                   "w-4 h-4 text-gray-400 transition-transform",
@@ -100,7 +115,7 @@ export default function Navbar() {
                   <button
                     onClick={() => {
                       setUserDropdownOpen(false);
-                      // Add logout logic here
+                      handleLogout();
                     }}
                     className="flex items-center space-x-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 w-full text-left"
                   >

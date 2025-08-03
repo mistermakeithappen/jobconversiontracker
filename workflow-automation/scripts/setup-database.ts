@@ -36,26 +36,47 @@ async function executeSql(sql: string) {
 async function setupDatabase() {
   console.log('🚀 Setting up database...\n');
 
-  // Read the migration file
-  const migrationPath = path.join(process.cwd(), 'supabase/migrations/20250125_initial_schema.sql');
-  const migrationSQL = fs.readFileSync(migrationPath, 'utf8');
+  // Get all migration files in order
+  const migrationsDir = path.join(process.cwd(), 'supabase/migrations');
+  const migrationFiles = fs.readdirSync(migrationsDir)
+    .filter(f => f.endsWith('.sql') && !f.includes('MIGRATION_ORDER'))
+    .sort();
+
+  console.log(`Found ${migrationFiles.length} migration files to run:\n`);
+  migrationFiles.forEach(f => console.log(`  - ${f}`));
+  console.log();
+
+  // Combine all migrations
+  let combinedSQL = '';
+  for (const file of migrationFiles) {
+    const filePath = path.join(migrationsDir, file);
+    const content = fs.readFileSync(filePath, 'utf8');
+    combinedSQL += `\n-- ========================================\n`;
+    combinedSQL += `-- Migration: ${file}\n`;
+    combinedSQL += `-- ========================================\n`;
+    combinedSQL += content;
+    combinedSQL += `\n\n`;
+  }
 
   // Since we can't execute raw SQL through the client, we'll need to use Supabase Dashboard
   console.log('📋 Database setup instructions:\n');
   console.log('1. Open Supabase SQL Editor:');
   console.log(`   https://supabase.com/dashboard/project/hmulhwnftlsezkjuflxm/sql/new\n`);
-  console.log('2. Copy and paste the following SQL:\n');
-  console.log('-- START OF SQL --');
-  console.log(migrationSQL);
-  console.log('-- END OF SQL --\n');
-  console.log('3. Click "Run" to execute the migration\n');
-  console.log('4. After running the migration, execute: npm run init-db\n');
+  console.log('2. The combined migrations have been saved to a file (see below)\n');
+  console.log('3. Copy the file content and paste it in the SQL editor\n');
+  console.log('4. Click "Run" to execute all migrations\n');
+  console.log('5. After running the migrations, the database will be fully set up\n');
   
   // Create a file with the migration for easy copying
-  const outputPath = path.join(process.cwd(), 'scripts/migration-to-run.sql');
-  fs.writeFileSync(outputPath, migrationSQL);
-  console.log(`💾 Migration SQL saved to: ${outputPath}`);
+  const outputPath = path.join(process.cwd(), 'scripts/all-migrations-combined.sql');
+  fs.writeFileSync(outputPath, combinedSQL);
+  console.log(`💾 Combined migrations saved to: ${outputPath}`);
   console.log('   You can copy this file content to the Supabase SQL editor.\n');
+  
+  // Show specific instructions for the auth trigger
+  console.log('⚠️  IMPORTANT: The auth trigger (migration 012) is critical for new user signup.');
+  console.log('   This trigger automatically creates organizations for new users.');
+  console.log('   Without it, users can sign up but cannot log in.\n');
 }
 
 setupDatabase().catch(console.error);

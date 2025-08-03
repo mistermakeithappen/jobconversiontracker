@@ -1,21 +1,35 @@
-import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import { mockAuthServer } from '@/lib/auth/mock-auth-server';
+import { NextRequest, NextResponse } from 'next/server';
+import { requireAuth, getServiceSupabase } from '@/lib/auth/production-auth-server';
+import { getUserOrganization } from '@/lib/auth/organization-helper';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const { userId } = mockAuthServer();
+    let userId, user;
+    try {
+      const authResult = await requireAuth(request);
+      userId = authResult.userId;
+      user = authResult.user;
+    } catch (authError: any) {
+      console.error('Authentication failed:', authError);
+      return NextResponse.json(
+        { error: authError.message || 'Authentication required' },
+        { status: 401 }
+      );
+    }
     
-    // Check if user has GHL integration
+    const organization = await getUserOrganization(userId);
+    
+    const supabase = getServiceSupabase();
+    
+    if (!organization) {
+      return NextResponse.json({ error: 'No organization found' }, { status: 400 });
+    }
+    
+    // Check if organization has GHL integration
     const { data: integration, error } = await supabase
       .from('integrations')
       .select('*')
-      .eq('user_id', userId)
+      .eq('organization_id', organization.organizationId)
       .eq('type', 'gohighlevel')
       .single();
     
@@ -24,8 +38,14 @@ export async function GET() {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
     
+    // Check if integration needs reconnection
+    const needsReconnection = integration?.config?.needsReconnection || false;
+    const reconnectionReason = integration?.config?.reconnectionReason || null;
+    
     return NextResponse.json({
-      connected: !!integration && integration.is_active,
+      connected: !!integration && integration.is_active && !needsReconnection,
+      needsReconnection,
+      reconnectionReason,
       integrationId: integration?.id || null,
       integration: integration || null
     });

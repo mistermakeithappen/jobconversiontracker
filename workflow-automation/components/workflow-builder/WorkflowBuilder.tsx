@@ -21,6 +21,11 @@ import 'reactflow/dist/style.css';
 import { Webhook, Clock, Globe, Mail, Sparkles, Database, Code, GitBranch, Filter, Repeat, Search, Building2, Users, FileText, CreditCard, Calendar } from 'lucide-react';
 import CustomNode from './CustomNode';
 
+// Define custom node types outside component to prevent React Flow warnings
+const nodeTypes = {
+  custom: CustomNode,
+} as const;
+
 const initialNodes: Node[] = [
   {
     id: '1',
@@ -165,11 +170,6 @@ function Flow({ initialData, onNodesChange: onNodesChangeCallback, onEdgesChange
       onEdgesChangeCallback(edges);
     }
   }, [edges, onEdgesChangeCallback]);
-
-  // Define custom node types
-  const nodeTypes = useMemo(() => ({
-    custom: CustomNode,
-  }), []);
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => setNodes((nds) => applyNodeChanges(changes, nds)),

@@ -4,10 +4,10 @@ import Link from "next/link";
 import { Plus, Zap, Search, Filter, MoreVertical, Clock, CheckCircle, XCircle } from 'lucide-react';
 import { createClient } from "@supabase/supabase-js";
 import { useEffect, useState } from "react";
-import { useMockAuth } from "@/lib/auth/mock-auth";
+import { useAuth } from "@/lib/auth/auth-context";
 
 export default function WorkflowsPage() {
-  const { userId } = useMockAuth();
+  const { userId } = useAuth();
   const [workflows, setWorkflows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');

@@ -1,15 +1,11 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-import { mockAuthServer } from "@/lib/auth/mock-auth-server";
+import { requireAuth, getServiceSupabase } from "@/lib/auth/production-auth-server";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+const supabase = getServiceSupabase();
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const { userId } = mockAuthServer();
+    const { userId } = await requireAuth(request);
 
     const { data, error } = await supabase
       .from('workflows')
@@ -32,7 +28,7 @@ export async function POST(request: Request) {
   try {
     console.log('POST /api/workflows - Starting request');
     
-    const { userId } = mockAuthServer();
+    const { userId } = await requireAuth(request);
     console.log('User ID:', userId);
 
     const body = await request.json();

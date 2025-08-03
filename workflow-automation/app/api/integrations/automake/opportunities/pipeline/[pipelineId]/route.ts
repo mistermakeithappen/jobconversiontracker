@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { mockAuthServer } from '@/lib/auth/mock-auth-server';
+import { requireAuth } from '@/lib/auth/production-auth-server';
 import { createGHLClient } from '@/lib/integrations/gohighlevel/client';
 import { encrypt } from '@/lib/utils/encryption';
 
@@ -14,7 +14,7 @@ export async function GET(
   { params }: { params: { pipelineId: string } }
 ) {
   try {
-    const { userId } = mockAuthServer();
+    const { userId } = await requireAuth(request);
     const { pipelineId } = params;
     const searchParams = request.nextUrl.searchParams;
     const maxResults = parseInt(searchParams.get('maxResults') || '5000');
@@ -27,13 +27,13 @@ export async function GET(
       .eq('type', 'gohighlevel')
       .single();
     
-    if (error || !integration || !integration.config.encryptedTokens) {
+    if (error || !integration || !integration.config?.encryptedTokens) {
       return NextResponse.json({ error: 'GoHighLevel not connected' }, { status: 400 });
     }
     
     // Create GHL client with token refresh callback
     const ghlClient = await createGHLClient(
-      integration.config.encryptedTokens,
+      integration.config?.encryptedTokens || '',
       async (newTokens) => {
         const encryptedTokens = encrypt(JSON.stringify(newTokens));
         await supabase
@@ -54,7 +54,7 @@ export async function GET(
       
       // Use getAllOpportunities with pipeline filter
       const opportunitiesResponse = await ghlClient.getAllOpportunities({
-        locationId: integration.config.locationId,
+        locationId: integration.config?.locationId || '',
         pipelineId: pipelineId,
         maxResults: maxResults
       });

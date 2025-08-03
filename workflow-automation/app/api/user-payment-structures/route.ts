@@ -1,29 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import { mockAuthServer } from '@/lib/auth/mock-auth-server';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false
-    }
-  }
-);
+import { requireAuth, getServiceSupabase } from '@/lib/auth/production-auth-server';
+import { getUserOrganization } from '@/lib/auth/organization-helper';
 
 export async function GET(request: NextRequest) {
   try {
-    const auth = mockAuthServer();
-    if (!auth?.userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const { userId } = await requireAuth(request);
+    const organization = await getUserOrganization(userId);
+    const supabase = getServiceSupabase();
+    
+    if (!organization) {
+      return NextResponse.json({ error: 'No organization found' }, { status: 404 });
     }
 
     const { data, error } = await supabase
       .from('user_payment_structures')
       .select('*')
-      .eq('user_id', auth.userId)
+      .eq('organization_id', organization.organizationId)
+      .eq('user_id', userId)
       .order('created_at', { ascending: false });
 
     if (error) {
@@ -48,7 +41,7 @@ export async function GET(request: NextRequest) {
       isActive: structure.is_active
     }));
 
-    return NextResponse.json({ structures });
+    return NextResponse.json({ paymentStructures: structures, structures });
   } catch (error) {
     console.error('Error in GET /api/user-payment-structures:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
@@ -57,9 +50,12 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const auth = mockAuthServer();
-    if (!auth?.userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const { userId } = await requireAuth(request);
+    const organization = await getUserOrganization(userId);
+    const supabase = getServiceSupabase();
+    
+    if (!organization) {
+      return NextResponse.json({ error: 'No organization found' }, { status: 404 });
     }
 
     const body = await request.json();
@@ -93,17 +89,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Base salary and commission percentage are required for hybrid payment type' }, { status: 400 });
     }
 
-    // Deactivate existing active structures
+    // Deactivate existing active structures in this organization
     await supabase
       .from('user_payment_structures')
       .update({ is_active: false, end_date: new Date().toISOString().split('T')[0] })
-      .eq('user_id', auth.userId)
+      .eq('organization_id', organization.organizationId)
+      .eq('user_id', userId)
       .eq('is_active', true);
 
     const { data, error } = await supabase
       .from('user_payment_structures')
       .insert({
-        user_id: auth.userId,
+        organization_id: organization.organizationId,
+        user_id: userId,
         payment_type: paymentType,
         hourly_rate: hourlyRate ? parseFloat(hourlyRate) : null,
         annual_salary: annualSalary ? parseFloat(annualSalary) : null,
@@ -111,7 +109,8 @@ export async function POST(request: NextRequest) {
         base_salary: baseSalary ? parseFloat(baseSalary) : null,
         overtime_rate: overtimeRate ? parseFloat(overtimeRate) : null,
         notes: notes || null,
-        effective_date: effectiveDate
+        effective_date: effectiveDate,
+        created_by: userId
       })
       .select()
       .single();
@@ -147,9 +146,20 @@ export async function POST(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
-    const auth = mockAuthServer();
+    const { userId } = await requireAuth(request);
     if (!auth?.userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Get user's organization
+    const { data: orgMember } = await supabase
+      .from('organization_members')
+      .select('organization_id')
+      .eq('user_id', userId)
+      .single();
+
+    if (!orgMember) {
+      return NextResponse.json({ error: 'No organization found' }, { status: 404 });
     }
 
     const body = await request.json();
@@ -173,7 +183,8 @@ export async function PUT(request: NextRequest) {
       .from('user_payment_structures')
       .update(updateData)
       .eq('id', id)
-      .eq('user_id', auth.userId)
+      .eq('organization_id', orgMember.organization_id)
+      .eq('user_id', userId)
       .select()
       .single();
 
@@ -212,9 +223,20 @@ export async function PUT(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const auth = mockAuthServer();
+    const { userId } = await requireAuth(request);
     if (!auth?.userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Get user's organization
+    const { data: orgMember } = await supabase
+      .from('organization_members')
+      .select('organization_id')
+      .eq('user_id', userId)
+      .single();
+
+    if (!orgMember) {
+      return NextResponse.json({ error: 'No organization found' }, { status: 404 });
     }
 
     const { searchParams } = new URL(request.url);
@@ -232,7 +254,8 @@ export async function DELETE(request: NextRequest) {
         end_date: new Date().toISOString().split('T')[0] 
       })
       .eq('id', id)
-      .eq('user_id', auth.userId)
+      .eq('organization_id', orgMember.organization_id)
+      .eq('user_id', userId)
       .select()
       .single();
 

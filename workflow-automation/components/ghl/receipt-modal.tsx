@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { X, Plus, Trash2, Edit2, Save, Receipt, DollarSign, Clock, User } from 'lucide-react';
-import { useMockAuth } from '@/lib/auth/mock-auth';
+import { getSupabaseClient } from '@/lib/auth/client';
 
 interface Receipt {
   id: string;
@@ -22,14 +22,16 @@ interface Receipt {
 
 interface TimeEntry {
   id: string;
-  ghl_user_id: string;
+  user_id: string;
   user_name: string;
   user_email: string;
   hours: number;
   hourly_rate?: number;
   description: string;
   work_date: string;
-  total_cost: number;
+  total_amount: number;
+  is_billable: boolean;
+  approval_status: string;
   created_at: string;
 }
 
@@ -42,6 +44,7 @@ interface Commission {
   commission_percentage: number;
   commission_amount?: number;
   notes?: string;
+  is_disabled?: boolean;
   created_at: string;
 }
 
@@ -101,7 +104,7 @@ const PAYMENT_METHODS = [
 ];
 
 export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: ReceiptModalProps) {
-  const { user } = useMockAuth();
+  const supabase = getSupabaseClient();
   const [activeTab, setActiveTab] = useState<'receipts' | 'time' | 'commissions'>('receipts');
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([]);
@@ -114,24 +117,31 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
   const [showTimeForm, setShowTimeForm] = useState(false);
   const [showCommissionForm, setShowCommissionForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  
+  // Debug log opportunity data
+  console.log('Receipt Modal - Opportunity data:', {
+    id: opportunity.id,
+    assignedTo: opportunity.assignedTo,
+    assignedToName: opportunity.assignedToName,
+    fullOpportunity: opportunity
+  });
   const [isAiEntry, setIsAiEntry] = useState(false);
   const [aiProcessing, setAiProcessing] = useState(false);
   const [editingTimeId, setEditingTimeId] = useState<string | null>(null);
   const [editingCommissionId, setEditingCommissionId] = useState<string | null>(null);
   const [commissionLoading, setCommissionLoading] = useState(false);
   const [currentUserGhlName, setCurrentUserGhlName] = useState<string>('');
+  const [aiSelectedUser, setAiSelectedUser] = useState<string>('');
   const [formData, setFormData] = useState({
     vendor_name: '',
     description: '',
     amount: '',
     category: 'Materials',
     receipt_date: new Date().toISOString().split('T')[0],
-    receipt_number: '',
     notes: '',
     submitted_by: '',
-    payment_method: 'Credit Card',
-    last_four_digits: '',
-    reimbursable: false
+    payment_method: 'other',
+    last_four_digits: ''
   });
   const [timeFormData, setTimeFormData] = useState({
     user_id: '',
@@ -161,6 +171,7 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
     notes: string;
     override_enabled?: boolean;
   }[]>([]);
+  const [companyCards, setCompanyCards] = useState<string[]>([]);
 
   useEffect(() => {
     fetchReceipts();
@@ -169,6 +180,7 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
     fetchGHLUsers();
     fetchPaymentAssignments();
     fetchCurrentUserGhlName();
+    fetchCompanyCards();
   }, [opportunity.id]);
 
   useEffect(() => {
@@ -183,10 +195,16 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
   const fetchReceipts = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`/api/receipts?opportunityId=${opportunity.id}`);
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await fetch(`/api/receipts?opportunityId=${opportunity.id}`, {
+        headers: {
+          'Authorization': `Bearer ${session?.access_token}`,
+        }
+      });
       const data = await response.json();
       
       if (response.ok) {
+        console.log('Fetched receipts:', data.receipts);
         setReceipts(data.receipts || []);
       }
     } catch (error) {
@@ -198,7 +216,12 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
 
   const fetchGHLUsers = async () => {
     try {
-      const response = await fetch('/api/integrations/automake/users');
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await fetch('/api/integrations/automake/users', {
+        headers: {
+          'Authorization': `Bearer ${session?.access_token}`,
+        }
+      });
       const data = await response.json();
       if (response.ok) {
         setGhlUsers(data.users || []);
@@ -208,9 +231,40 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
     }
   };
 
+  const fetchCompanyCards = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await fetch('/api/company-credit-cards', {
+        headers: {
+          'Authorization': `Bearer ${session?.access_token}`,
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Company cards response:', data);
+        
+        // Extract only the last 4 digits from active cards
+        const cardNumbers = (data.cards || [])
+          .filter((card: any) => card.isActive) // Changed from is_active to isActive
+          .map((card: any) => card.lastFourDigits); // Changed from last_four_digits to lastFourDigits
+        
+        console.log('Extracted company card numbers:', cardNumbers);
+        setCompanyCards(cardNumbers);
+      }
+    } catch (error) {
+      console.error('Error fetching company cards:', error);
+    }
+  };
+
   const fetchCurrentUserGhlName = async () => {
     try {
-      const response = await fetch('/api/user-payment-structures');
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await fetch('/api/user-payment-structures', {
+        headers: {
+          'Authorization': `Bearer ${session?.access_token}`,
+        }
+      });
       const data = await response.json();
       if (response.ok && data.structures && data.structures.length > 0) {
         // Find the current user's GHL name
@@ -231,7 +285,12 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
 
   const fetchPaymentAssignments = async () => {
     try {
-      const response = await fetch('/api/user-payment-assignments');
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await fetch('/api/user-payment-assignments', {
+        headers: {
+          'Authorization': `Bearer ${session?.access_token}`,
+        }
+      });
       const data = await response.json();
       if (response.ok) {
         setPaymentAssignments(data.assignments || []);
@@ -304,7 +363,12 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
   const fetchTimeEntries = async () => {
     setTimeLoading(true);
     try {
-      const response = await fetch(`/api/time-entries?opportunityId=${opportunity.id}`);
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await fetch(`/api/time-entries?opportunityId=${opportunity.id}`, {
+        headers: {
+          'Authorization': `Bearer ${session?.access_token}`,
+        }
+      });
       const data = await response.json();
       if (response.ok) {
         setTimeEntries(data.timeEntries || []);
@@ -319,10 +383,20 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
   const fetchCommissions = async () => {
     setCommissionLoading(true);
     try {
-      const response = await fetch(`/api/opportunity-commissions?opportunityId=${opportunity.id}`);
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await fetch(`/api/opportunity-commissions?opportunityId=${opportunity.id}`, {
+        headers: {
+          'Authorization': `Bearer ${session?.access_token}`,
+        }
+      });
       const data = await response.json();
       if (response.ok) {
-        console.log('Fetched commissions for opportunity:', opportunity.id, data.commissions);
+        console.log('Fetched commissions:', data.commissions);
+        console.log('Commission states:', data.commissions?.map((c: any) => ({
+          id: c.id,
+          user_name: c.user_name,
+          is_disabled: c.is_disabled
+        })));
         setCommissions(data.commissions || []);
       }
     } catch (error) {
@@ -372,9 +446,13 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
       console.log('Method:', method);
       console.log('Body:', body);
 
+      const { data: { session } } = await supabase.auth.getSession();
       const response = await fetch(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`,
+        },
         body: JSON.stringify(body)
       });
 
@@ -417,8 +495,12 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
     if (!confirm('Are you sure you want to delete this time entry?')) return;
     
     try {
+      const { data: { session } } = await supabase.auth.getSession();
       const response = await fetch(`/api/time-entries?id=${timeEntryId}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${session?.access_token}`,
+        }
       });
       
       if (response.ok) {
@@ -501,13 +583,18 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
             userEmail: user.user_email,
             commissionType: user.commission_type,
             commissionPercentage: parseFloat(user.commission_percentage),
-            notes: user.notes
+            notes: user.notes,
+            productId: user.product_id || null
           };
           
           try {
+            const { data: { session } } = await supabase.auth.getSession();
             const response = await fetch('/api/opportunity-commissions', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${session?.access_token}`,
+              },
               body: JSON.stringify(body)
             });
             
@@ -551,7 +638,8 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
       user_email: '',
       commission_type: 'gross',
       commission_percentage: '',
-      notes: ''
+      notes: '',
+      product_id: ''
     });
     setSelectedCommissionUsers([]);
     setShowCommissionForm(false);
@@ -562,8 +650,12 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
     if (!confirm('Are you sure you want to delete this commission assignment?')) return;
     
     try {
+      const { data: { session } } = await supabase.auth.getSession();
       const response = await fetch(`/api/opportunity-commissions?id=${commissionId}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${session?.access_token}`,
+        }
       });
       
       if (response.ok) {
@@ -576,6 +668,45 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
       }
     } catch (error) {
       console.error('Error deleting commission:', error);
+    }
+  };
+  
+  const handleToggleCommission = async (commissionId: string, enabled: boolean) => {
+    console.log('handleToggleCommission called with:', { commissionId, enabled });
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      console.log('Sending PATCH request to toggle commission...');
+      const response = await fetch('/api/opportunity-commissions', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`,
+        },
+        body: JSON.stringify({
+          id: commissionId,
+          is_disabled: !enabled
+        })
+      });
+      
+      console.log('PATCH response:', response.status, response.statusText);
+      
+      if (response.ok) {
+        const result = await response.json();
+        console.log('Commission toggle successful:', result);
+        await fetchCommissions();
+        // Force parent component to refresh opportunity data
+        if (onUpdate) {
+          onUpdate();
+        }
+      } else {
+        const error = await response.json();
+        console.error('Error toggling commission:', error);
+        alert('Failed to update commission status');
+      }
+    } catch (error) {
+      console.error('Error toggling commission:', error);
+      alert('Failed to update commission status');
     }
   };
 
@@ -595,9 +726,13 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
             amount: parseFloat(formData.amount)
           };
 
+      const { data: { session } } = await supabase.auth.getSession();
       const response = await fetch(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`,
+        },
         body: JSON.stringify(body)
       });
 
@@ -605,9 +740,14 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
         await fetchReceipts();
         resetForm();
         onUpdate();
+      } else {
+        const errorData = await response.json();
+        console.error('Error response from server:', errorData);
+        alert(`Failed to save receipt: ${errorData.error || 'Unknown error'}`);
       }
     } catch (error) {
       console.error('Error saving receipt:', error);
+      alert('Failed to save receipt. Please check the console for details.');
     }
   };
 
@@ -615,8 +755,12 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
     if (!confirm('Are you sure you want to delete this receipt?')) return;
     
     try {
+      const { data: { session } } = await supabase.auth.getSession();
       const response = await fetch(`/api/receipts?id=${id}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${session?.access_token}`,
+        }
       });
 
       if (response.ok) {
@@ -631,13 +775,12 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
   const handleEdit = (receipt: Receipt) => {
     setFormData({
       vendor_name: receipt.vendor_name,
-      description: receipt.description || '',
+      description: '',
       amount: receipt.amount.toString(),
       category: receipt.category,
       receipt_date: receipt.receipt_date,
-      receipt_number: receipt.receipt_number || '',
-      notes: receipt.notes || '',
-      submitted_by: receipt.submitted_by || currentUserGhlName || user?.name || '',
+      notes: receipt.notes || receipt.description || '', // Use notes or fallback to description
+      submitted_by: receipt.submitted_by || currentUserGhlName || '',
       payment_method: receipt.payment_method || 'Credit Card',
       last_four_digits: receipt.last_four_digits || '',
       reimbursable: receipt.reimbursable || false
@@ -653,9 +796,8 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
       amount: '',
       category: 'Materials',
       receipt_date: new Date().toISOString().split('T')[0],
-      receipt_number: '',
       notes: '',
-      submitted_by: currentUserGhlName || user?.name || '',
+      submitted_by: currentUserGhlName || '',
       payment_method: 'Credit Card',
       last_four_digits: '',
       reimbursable: false
@@ -674,7 +816,7 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
 
   const calculateLaborCost = () => {
     return timeEntries.reduce((total, entry) => {
-      return total + (entry.total_cost || 0);
+      return total + (entry.total_amount || (entry.hours * (entry.hourly_rate || 0)));
     }, 0);
   };
 
@@ -685,8 +827,10 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
   };
 
   const calculateTotalCommissions = () => {
+    // Only count commissions that are not disabled
+    const activeCommissions = commissions.filter(c => !c.is_disabled);
     
-    const grossCommissions = commissions
+    const grossCommissions = activeCommissions
       .filter(c => c.commission_type === 'gross')
       .reduce((sum, c) => sum + (opportunity.monetaryValue * c.commission_percentage / 100), 0);
     
@@ -695,7 +839,7 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
     const baseExpenses = materialExpenses + laborExpenses + grossCommissions;
     const netBeforeCommissions = opportunity.monetaryValue - baseExpenses;
     
-    const profitCommissions = commissions
+    const profitCommissions = activeCommissions
       .filter(c => c.commission_type === 'profit')
       .reduce((sum, c) => sum + (Math.max(0, netBeforeCommissions) * c.commission_percentage / 100), 0);
     
@@ -712,8 +856,9 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
     const materialExpenses = calculateMaterialExpenses();
     const laborExpenses = calculateLaborCost();
     
-    // Calculate gross-based commissions first
-    const grossCommissions = commissions
+    // Calculate gross-based commissions first (only active commissions)
+    const activeCommissions = commissions.filter(c => !c.is_disabled);
+    const grossCommissions = activeCommissions
       .filter(c => c.commission_type === 'gross')
       .reduce((sum, c) => sum + (opportunity.monetaryValue * c.commission_percentage / 100), 0);
     
@@ -722,7 +867,7 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
     const netBeforeCommissions = opportunity.monetaryValue - baseExpenses;
     
     // Calculate profit-based commissions on the net profit (before profit commissions)
-    const profitCommissions = commissions
+    const profitCommissions = activeCommissions
       .filter(c => c.commission_type === 'profit')
       .reduce((sum, c) => sum + (Math.max(0, netBeforeCommissions) * c.commission_percentage / 100), 0);
     
@@ -731,6 +876,12 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
   };
 
   const processReceiptWithAI = async (file: File) => {
+    // Validate user selection first
+    if (!aiSelectedUser) {
+      alert('Please select who is submitting this receipt before uploading.');
+      return;
+    }
+    
     setAiProcessing(true);
     try {
       const formData = new FormData();
@@ -738,8 +889,12 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
       formData.append('opportunityId', opportunity.id);
       formData.append('integrationId', integrationId);
 
+      const { data: { session } } = await supabase.auth.getSession();
       const response = await fetch('/api/receipts/process-image', {
         method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session?.access_token}`,
+        },
         body: formData
       });
 
@@ -749,13 +904,12 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
         // Pre-fill the form with AI-extracted data
         setFormData({
           vendor_name: data.receiptData.vendor_name || '',
-          description: data.receiptData.description || '',
+          description: '',
           amount: data.receiptData.amount?.toString() || '',
           category: data.receiptData.category || 'Materials',
           receipt_date: data.receiptData.receipt_date || new Date().toISOString().split('T')[0],
-          receipt_number: data.receiptData.receipt_number || '',
-          notes: '',
-          submitted_by: currentUserGhlName || user?.name || 'Unknown User',
+          notes: data.receiptData.description || '', // Put AI description in notes field
+          submitted_by: aiSelectedUser, // Use the selected user from AI upload
           payment_method: 'Credit Card',
           last_four_digits: '',
           reimbursable: false
@@ -927,6 +1081,27 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
                 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Submitted By *
+                  </label>
+                  <select
+                    required
+                    value={formData.submitted_by}
+                    onChange={(e) => setFormData({ ...formData, submitted_by: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900"
+                  >
+                    <option value="">Select person who submitted</option>
+                    {ghlUsers.map(user => (
+                      <option key={user.id} value={user.name || `${user.firstName} ${user.lastName}`}>
+                        {user.name || `${user.firstName} ${user.lastName}`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
                     Amount *
                   </label>
                   <input
@@ -970,40 +1145,22 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
                 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Receipt Number
+                    Card # (Last 4 Digits)
                   </label>
                   <input
                     type="text"
-                    value={formData.receipt_number}
-                    onChange={(e) => setFormData({ ...formData, receipt_number: e.target.value })}
+                    maxLength={4}
+                    value={formData.last_four_digits}
+                    onChange={(e) => {
+                      const value = e.target.value.replace(/\D/g, ''); // Only allow numbers
+                      setFormData({ ...formData, last_four_digits: value, payment_method: value ? 'credit_card' : 'other' });
+                    }}
+                    placeholder="1234"
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 placeholder-gray-500"
                   />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Description
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.description}
-                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 placeholder-gray-500"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Submitted By *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={formData.submitted_by}
-                    onChange={(e) => setFormData({ ...formData, submitted_by: e.target.value })}
-                    placeholder="Name of person who submitted"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 placeholder-gray-500"
-                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    For automatic reimbursable detection
+                  </p>
                 </div>
                 
                 <div>
@@ -1022,46 +1179,62 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
                   </select>
                 </div>
                 
-                {formData.payment_method === 'credit_card' && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Last 4 Digits
-                    </label>
-                    <input
-                      type="text"
-                      maxLength={4}
-                      value={formData.last_four_digits}
-                      onChange={(e) => setFormData({ ...formData, last_four_digits: e.target.value.replace(/\D/g, '') })}
-                      placeholder="1234"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 placeholder-gray-500"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">
-                      For automatic reimbursable determination
+                <div className="col-span-2">
+                  <div className={`border rounded-lg p-3 ${
+                    formData.last_four_digits && formData.last_four_digits.length === 4
+                      ? companyCards.includes(formData.last_four_digits)
+                        ? 'bg-green-50 border-green-200'
+                        : 'bg-red-50 border-red-200'
+                      : 'bg-blue-50 border-blue-200'
+                  }`}>
+                    <div className="flex items-center space-x-2">
+                      <div className={`w-3 h-3 rounded-full ${
+                        formData.last_four_digits && formData.last_four_digits.length === 4
+                          ? companyCards.includes(formData.last_four_digits)
+                            ? 'bg-green-500'
+                            : 'bg-red-500'
+                          : 'bg-blue-500'
+                      }`}></div>
+                      <p className={`text-sm font-medium ${
+                        formData.last_four_digits && formData.last_four_digits.length === 4
+                          ? companyCards.includes(formData.last_four_digits)
+                            ? 'text-green-800'
+                            : 'text-red-800'
+                          : 'text-blue-800'
+                      }`}>
+                        {formData.last_four_digits && formData.last_four_digits.length === 4
+                          ? companyCards.includes(formData.last_four_digits)
+                            ? 'Company Card - Not Reimbursable'
+                            : 'Personal Card - Reimbursable'
+                          : 'Reimbursable Status'}
+                      </p>
+                    </div>
+                    <p className={`text-xs mt-1 ${
+                      formData.last_four_digits && formData.last_four_digits.length === 4
+                        ? companyCards.includes(formData.last_four_digits)
+                          ? 'text-green-700'
+                          : 'text-red-700'
+                        : 'text-blue-700'
+                    }`}>
+                      {formData.last_four_digits && formData.last_four_digits.length === 4
+                        ? companyCards.includes(formData.last_four_digits)
+                          ? 'This is a recognized company card. Expenses will not be marked for reimbursement.'
+                          : 'This card is not recognized as a company card. Expenses will be marked for reimbursement.'
+                        : 'Enter card last 4 digits above for automatic detection'}
                     </p>
                   </div>
-                )}
-                
-                <div className="flex items-center space-x-2 pt-6">
-                  <input
-                    type="checkbox"
-                    id="reimbursable"
-                    checked={formData.reimbursable}
-                    onChange={(e) => setFormData({ ...formData, reimbursable: e.target.checked })}
-                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                  />
-                  <label htmlFor="reimbursable" className="text-sm font-medium text-gray-700">
-                    Reimbursable expense
-                  </label>
                 </div>
                 
                 <div className="col-span-2">
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Notes
+                    What was purchased? *
                   </label>
                   <textarea
+                    required
                     value={formData.notes}
                     onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
                     rows={2}
+                    placeholder="List items purchased (e.g., lumber, paint supplies, tools)"
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 placeholder-gray-500"
                   />
                 </div>
@@ -1103,6 +1276,27 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
               </div>
 
               <div className="space-y-4">
+                {/* User Selection Dropdown */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Who is submitting this receipt? *
+                  </label>
+                  <select
+                    required
+                    value={aiSelectedUser}
+                    onChange={(e) => setAiSelectedUser(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-gray-900"
+                    disabled={aiProcessing}
+                  >
+                    <option value="">Select person submitting receipt</option>
+                    {ghlUsers.map(user => (
+                      <option key={user.id} value={user.name || `${user.firstName} ${user.lastName}`}>
+                        {user.name || `${user.firstName} ${user.lastName}`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                
                 <div className="border-2 border-dashed border-purple-300 rounded-lg p-6 text-center">
                   {aiProcessing ? (
                     <div className="flex flex-col items-center">
@@ -1192,42 +1386,56 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
             </div>
           ) : (
             <div className="space-y-3">
-              {receipts.map((receipt) => (
+              {receipts.map((receipt) => {
+                console.log('Rendering receipt:', {
+                  id: receipt.id,
+                  vendor_name: receipt.vendor_name,
+                  submitted_by: receipt.submitted_by,
+                  submitted_by_name: receipt.submitted_by_name,
+                  ai_extracted_data: receipt.ai_extracted_data,
+                  notes: receipt.notes,
+                  category: receipt.category
+                });
+                return (
                 <div key={receipt.id} className="bg-white border border-gray-200 rounded-lg p-4">
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
-                      <div className="flex items-center space-x-3">
-                        <h4 className="font-medium text-gray-900">{receipt.vendor_name}</h4>
-                        <span className="px-2 py-0.5 bg-gray-100 text-gray-700 text-xs rounded-full">
-                          {receipt.category}
-                        </span>
-                        {receipt.reimbursable && (
-                          <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full">
-                            Reimbursable
+                      <div className="space-y-1">
+                        <h4 className="font-medium text-gray-900">
+                          {receipt.vendor_name || 'Unknown Vendor'}
+                        </h4>
+                        <div className="flex items-center space-x-3">
+                          <span className="px-2 py-0.5 bg-gray-100 text-gray-700 text-xs rounded-full">
+                            {receipt.category || 'Other'}
                           </span>
-                        )}
-                        {receipt.payment_method && (
-                          <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full">
-                            {receipt.payment_method.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
-                            {receipt.last_four_digits && ` ••••${receipt.last_four_digits}`}
+                          <span className={`px-2 py-0.5 text-xs rounded-full ${
+                            receipt.reimbursable 
+                              ? 'bg-red-100 text-red-700' 
+                              : 'bg-green-100 text-green-700'
+                          }`}>
+                            {receipt.reimbursable ? 'Reimbursable' : 'Company Card'}
                           </span>
-                        )}
+                          {receipt.payment_method && (
+                            <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full">
+                              {receipt.payment_method.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                              {receipt.last_four_digits && ` ••••${receipt.last_four_digits}`}
+                            </span>
+                          )}
+                        </div>
                       </div>
-                      {receipt.description && (
-                        <p className="text-sm text-gray-600 mt-1">{receipt.description}</p>
+                      {receipt.notes && (
+                        <p className="text-sm text-gray-600 mt-1">{receipt.notes}</p>
                       )}
                       <div className="flex items-center space-x-4 mt-2 text-sm text-gray-500">
                         <span>{new Date(receipt.receipt_date).toLocaleDateString()}</span>
-                        {receipt.receipt_number && (
-                          <span>Receipt #{receipt.receipt_number}</span>
+                        {receipt.last_four_digits && (
+                          <span>Card ••••{receipt.last_four_digits}</span>
                         )}
-                        {receipt.submitted_by && (
-                          <span>Submitted by {receipt.submitted_by}</span>
-                        )}
+                        <span className="flex items-center">
+                          <User className="w-3 h-3 mr-1" />
+                          {receipt.submitted_by || 'Unknown'}
+                        </span>
                       </div>
-                      {receipt.notes && (
-                        <p className="text-sm text-gray-600 mt-2 italic">{receipt.notes}</p>
-                      )}
                     </div>
                     
                     <div className="flex items-center space-x-2 ml-4">
@@ -1249,7 +1457,8 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
                     </div>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
             </>
@@ -1451,7 +1660,7 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
                             <h4 className="font-medium text-gray-900">{entry.user_name}</h4>
                             <span className="text-sm text-gray-500">{entry.user_email}</span>
                             {(() => {
-                              const paymentInfo = getUserPaymentInfo(entry.ghl_user_id);
+                              const paymentInfo = getUserPaymentInfo(entry.user_id);
                               if (paymentInfo) {
                                 return (
                                   <span className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded-full">
@@ -1470,7 +1679,7 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
                               <span>{formatCurrency(entry.hourly_rate)}/hour</span>
                             )}
                             <span className="font-medium text-green-600">
-                              Total: {formatCurrency(entry.total_cost)}
+                              Total: {formatCurrency(entry.total_amount || (entry.hours * (entry.hourly_rate || 0)))}
                             </span>
                           </div>
                         </div>
@@ -1585,7 +1794,8 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
                                             commission_type: defaultType,
                                             commission_percentage: defaultPercentage,
                                             notes: '',
-                                            override_enabled: false
+                                            override_enabled: false,
+                                            product_id: ''
                                           }]);
                                         } else {
                                           // Remove user
@@ -1654,52 +1864,73 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
                                       <X className="w-4 h-4" />
                                     </button>
                                   </div>
-                                  <div className="grid grid-cols-3 gap-2">
+                                  <div className="space-y-2">
+                                    <div className="grid grid-cols-3 gap-2">
+                                      <div>
+                                        <label className="block text-xs text-gray-600">Type</label>
+                                        <select
+                                          value={user.commission_type}
+                                          onChange={(e) => {
+                                            const updated = [...selectedCommissionUsers];
+                                            updated[actualIndex].commission_type = e.target.value;
+                                            setSelectedCommissionUsers(updated);
+                                          }}
+                                          className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-green-500"
+                                        >
+                                          <option value="gross">% of Gross</option>
+                                          <option value="profit">% of Profit</option>
+                                        </select>
+                                      </div>
+                                      <div>
+                                        <label className="block text-xs text-gray-600">Percentage</label>
+                                        <input
+                                          type="number"
+                                          step="0.01"
+                                          min="0"
+                                          max="100"
+                                          value={user.commission_percentage}
+                                          onChange={(e) => {
+                                            const updated = [...selectedCommissionUsers];
+                                            updated[actualIndex].commission_percentage = e.target.value;
+                                            setSelectedCommissionUsers(updated);
+                                          }}
+                                          placeholder="10"
+                                          className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-green-500"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="block text-xs text-gray-600">Notes</label>
+                                        <input
+                                          type="text"
+                                          value={user.notes}
+                                          onChange={(e) => {
+                                            const updated = [...selectedCommissionUsers];
+                                            updated[actualIndex].notes = e.target.value;
+                                            setSelectedCommissionUsers(updated);
+                                          }}
+                                        placeholder="Optional"
+                                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-green-500"
+                                      />
+                                    </div>
+                                  </div>
                                     <div>
-                                      <label className="block text-xs text-gray-600">Type</label>
+                                      <label className="block text-xs text-gray-600">Product (Optional)</label>
                                       <select
-                                        value={user.commission_type}
+                                        value={user.product_id || ''}
                                         onChange={(e) => {
                                           const updated = [...selectedCommissionUsers];
-                                          updated[actualIndex].commission_type = e.target.value;
+                                          updated[actualIndex].product_id = e.target.value;
                                           setSelectedCommissionUsers(updated);
                                         }}
                                         className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-green-500"
                                       >
-                                        <option value="gross">% of Gross</option>
-                                        <option value="profit">% of Profit</option>
+                                        <option value="">All Products</option>
+                                        {products.filter(p => p.is_active).map(product => (
+                                          <option key={product.id} value={product.id}>
+                                            {product.name} ({product.price_type === 'recurring' ? 'Recurring' : 'One-time'})
+                                          </option>
+                                        ))}
                                       </select>
-                                    </div>
-                                    <div>
-                                      <label className="block text-xs text-gray-600">Percentage</label>
-                                      <input
-                                        type="number"
-                                        step="0.01"
-                                        min="0"
-                                        max="100"
-                                        value={user.commission_percentage}
-                                        onChange={(e) => {
-                                          const updated = [...selectedCommissionUsers];
-                                          updated[actualIndex].commission_percentage = e.target.value;
-                                          setSelectedCommissionUsers(updated);
-                                        }}
-                                        placeholder="10"
-                                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-green-500"
-                                      />
-                                    </div>
-                                    <div>
-                                      <label className="block text-xs text-gray-600">Notes</label>
-                                      <input
-                                        type="text"
-                                        value={user.notes}
-                                        onChange={(e) => {
-                                          const updated = [...selectedCommissionUsers];
-                                          updated[actualIndex].notes = e.target.value;
-                                          setSelectedCommissionUsers(updated);
-                                        }}
-                                        placeholder="Optional"
-                                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-green-500"
-                                      />
                                     </div>
                                   </div>
                                 </div>
@@ -1722,6 +1953,24 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
                           disabled
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-100 text-gray-900"
                         />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Product (Optional)
+                        </label>
+                        <select
+                          value={commissionFormData.product_id || ''}
+                          onChange={(e) => setCommissionFormData({ ...commissionFormData, product_id: e.target.value })}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-gray-900"
+                        >
+                          <option value="">All Products</option>
+                          {products.filter(p => p.is_active).map(product => (
+                            <option key={product.id} value={product.id}>
+                              {product.name} ({product.price_type === 'recurring' ? 'Recurring' : 'One-time'})
+                            </option>
+                          ))}
+                        </select>
                       </div>
                       
                       <div>
@@ -1813,7 +2062,8 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
                     // For profit-based commissions, calculate net BEFORE commissions
                     const materialExpenses = calculateMaterialExpenses();
                     const laborExpenses = calculateLaborCost();
-                    const grossCommissions = commissions
+                    const activeCommissions = commissions.filter(c => !c.is_disabled);
+                    const grossCommissions = activeCommissions
                       .filter(c => c.commission_type === 'gross')
                       .reduce((sum, c) => sum + (opportunity.monetaryValue * c.commission_percentage / 100), 0);
                     const netBeforeCommissions = opportunity.monetaryValue - materialExpenses - laborExpenses - grossCommissions;
@@ -1822,49 +2072,91 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
                     const commissionAmount = (baseAmount * commission.commission_percentage) / 100;
                     
                     return (
-                      <div key={commission.id} className="bg-white border border-gray-200 rounded-lg p-4">
+                      <div 
+                        key={commission.id} 
+                        className={`bg-white border rounded-lg p-4 ${commission.is_disabled ? 'border-gray-200 opacity-60' : 'border-gray-200'}`}
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         <div className="flex items-start justify-between">
                           <div className="flex-1">
-                            <h4 className="font-medium text-gray-900">{commission.user_name}</h4>
+                            <div className="flex items-center space-x-2">
+                              <h4 className={`font-medium ${commission.is_disabled ? 'text-gray-500' : 'text-gray-900'}`}>
+                                {commission.user_name}
+                              </h4>
+                              {commission.is_disabled && (
+                                <span className="text-xs px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full">
+                                  Disabled
+                                </span>
+                              )}
+                            </div>
                             <p className="text-sm text-gray-600">{commission.user_email}</p>
                             <p className="text-xs text-gray-500 mt-1">
-                              {commission.commission_percentage}% of {commission.commission_type === 'gross' ? 'gross revenue' : 'net profit'}
+                              {commission.is_disabled ? '0%' : `${commission.commission_percentage}%`} of {commission.commission_type === 'gross' ? 'gross revenue' : 'net profit'}
                             </p>
+                            {commission.product_id && (
+                              <p className="text-xs text-blue-600 mt-1">
+                                Product: {products.find(p => p.id === commission.product_id)?.name || 'Unknown'}
+                              </p>
+                            )}
                             {commission.notes && (
                               <p className="text-xs text-gray-500 mt-1 italic">{commission.notes}</p>
                             )}
                           </div>
                           <div className="flex items-start space-x-3">
                             <div className="text-right">
-                              <p className="text-lg font-bold text-green-600">
-                                {formatCurrency(commissionAmount)}
+                              <p className={`text-lg font-bold ${commission.is_disabled ? 'text-gray-400' : 'text-green-600'}`}>
+                                {formatCurrency(commission.is_disabled ? 0 : commissionAmount)}
                               </p>
                               <p className="text-xs text-gray-500">Commission</p>
                             </div>
-                            <div className="flex space-x-1">
-                              <button
-                                onClick={() => {
-                                  setCommissionFormData({
-                                    user_id: commission.ghl_user_id,
-                                    user_name: commission.user_name,
-                                    user_email: commission.user_email,
-                                    commission_type: commission.commission_type,
-                                    commission_percentage: commission.commission_percentage.toString(),
-                                    notes: commission.notes || ''
-                                  });
-                                  setEditingCommissionId(commission.id);
-                                  setShowCommissionForm(true);
-                                }}
-                                className="p-1 hover:bg-gray-100 rounded transition-colors"
-                              >
-                                <Edit2 className="w-4 h-4 text-gray-500" />
-                              </button>
-                              <button
-                                onClick={() => handleDeleteCommission(commission.id)}
-                                className="p-1 hover:bg-gray-100 rounded transition-colors"
-                              >
-                                <Trash2 className="w-4 h-4 text-red-500" />
-                              </button>
+                            <div className="flex flex-col space-y-2">
+                              <div className="flex items-center space-x-2">
+                                <input
+                                  type="checkbox"
+                                  id={`commission-enable-${commission.id}`}
+                                  checked={!commission.is_disabled}
+                                  onChange={(e) => {
+                                    e.stopPropagation();
+                                    console.log('Checkbox clicked for commission:', commission.id, 'Current disabled:', commission.is_disabled, 'New disabled:', !e.target.checked);
+                                    handleToggleCommission(commission.id, e.target.checked);
+                                  }}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="h-4 w-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                                />
+                                <label 
+                                  htmlFor={`commission-enable-${commission.id}`} 
+                                  className="text-xs text-gray-600 cursor-pointer"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  Enabled
+                                </label>
+                              </div>
+                              <div className="flex space-x-1">
+                                <button
+                                  onClick={() => {
+                                    setCommissionFormData({
+                                      user_id: commission.ghl_user_id,
+                                      user_name: commission.user_name,
+                                      user_email: commission.user_email,
+                                      commission_type: commission.commission_type,
+                                      commission_percentage: commission.commission_percentage.toString(),
+                                      notes: commission.notes || '',
+                                      product_id: commission.product_id || ''
+                                    });
+                                    setEditingCommissionId(commission.id);
+                                    setShowCommissionForm(true);
+                                  }}
+                                  className="p-1 hover:bg-gray-100 rounded transition-colors"
+                                >
+                                  <Edit2 className="w-4 h-4 text-gray-500" />
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteCommission(commission.id)}
+                                  className="p-1 hover:bg-gray-100 rounded transition-colors"
+                                >
+                                  <Trash2 className="w-4 h-4 text-red-500" />
+                                </button>
+                              </div>
                             </div>
                           </div>
                         </div>

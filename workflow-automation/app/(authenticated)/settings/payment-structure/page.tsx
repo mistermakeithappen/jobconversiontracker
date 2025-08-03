@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Plus, DollarSign, Edit2, Trash2, Save, X, AlertCircle, CheckCircle, User, RefreshCw, Users, Building2, ArrowLeft } from 'lucide-react';
+import { Plus, DollarSign, Edit2, Trash2, Save, X, AlertCircle, CheckCircle, User, RefreshCw, Users, Building2, ArrowLeft, Phone } from 'lucide-react';
 import Link from 'next/link';
+import { createPortal } from 'react-dom';
 
 interface GHLUser {
   id: string;
@@ -32,6 +33,11 @@ interface PaymentAssignment {
   end_date?: string;
   is_active: boolean;
   created_at: string;
+  // Commission settings
+  commission_type?: string;
+  subscription_commission_percentage?: number;
+  subscription_commission_type?: string;
+  subscription_duration_months?: number;
 }
 
 const PAYMENT_TYPES = [
@@ -54,6 +60,7 @@ export default function PaymentStructurePage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [ghlConnected, setGhlConnected] = useState(false);
+  const [commissions, setCommissions] = useState<any[]>([]);
 
   const [formData, setFormData] = useState({
     ghl_user_id: '',
@@ -67,13 +74,19 @@ export default function PaymentStructurePage() {
     base_salary: '',
     overtime_rate: '',
     notes: '',
-    effective_date: new Date().toISOString().split('T')[0]
+    effective_date: new Date().toISOString().split('T')[0],
+    // Commission settings
+    commission_type: 'gross',
+    subscription_commission_percentage: '',
+    subscription_commission_type: 'first_payment_only',
+    subscription_duration_months: '12'
   });
 
   useEffect(() => {
     Promise.all([
       checkGHLConnection(),
-      fetchAssignments()
+      fetchAssignments(),
+      fetchCommissions()
     ]).finally(() => setLoading(false));
   }, []);
 
@@ -127,6 +140,44 @@ export default function PaymentStructurePage() {
     }
   };
 
+  const fetchCommissions = async () => {
+    try {
+      const response = await fetch('/api/ghl/user-commissions');
+      const data = await response.json();
+      
+      if (response.ok) {
+        setCommissions(data.commissions || []);
+      }
+    } catch (error) {
+      console.error('Error fetching commissions:', error);
+    }
+  };
+
+  const saveCommissionSettings = async (userId: string, userName: string, userEmail: string) => {
+    try {
+      const response = await fetch('/api/ghl/user-commissions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ghl_user_id: userId,
+          user_name: userName,
+          user_email: userEmail,
+          commission_type: formData.commission_type,
+          commission_percentage: parseFloat(formData.commission_percentage || '10'),
+          subscription_commission_percentage: parseFloat(formData.subscription_commission_percentage || '5'),
+          subscription_commission_type: formData.subscription_commission_type,
+          subscription_duration_months: parseInt(formData.subscription_duration_months || '12')
+        })
+      });
+
+      if (response.ok) {
+        await fetchCommissions();
+      }
+    } catch (error) {
+      console.error('Error saving commission settings:', error);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -149,6 +200,8 @@ export default function PaymentStructurePage() {
       const data = await response.json();
 
       if (response.ok) {
+        // Also save commission settings
+        await saveCommissionSettings(formData.ghl_user_id, formData.ghl_user_name, formData.ghl_user_email);
         await fetchAssignments();
         resetForm();
         setSuccess(`Payment structure ${editingAssignment ? 'updated' : 'assigned'} successfully`);
@@ -194,6 +247,7 @@ export default function PaymentStructurePage() {
   };
 
   const handleEdit = (assignment: PaymentAssignment) => {
+    const commission = getUserCommission(assignment.user_id);
     setFormData({
       ghl_user_id: assignment.user_id,
       ghl_user_name: assignment.ghl_user_name,
@@ -206,7 +260,12 @@ export default function PaymentStructurePage() {
       base_salary: assignment.base_salary?.toString() || '',
       overtime_rate: assignment.overtime_rate?.toString() || '',
       notes: assignment.notes || '',
-      effective_date: assignment.effective_date
+      effective_date: assignment.effective_date,
+      // Load commission settings from fetched data
+      commission_type: commission?.commission_type || 'gross',
+      subscription_commission_percentage: commission?.subscription_commission_percentage?.toString() || '5',
+      subscription_commission_type: commission?.subscription_commission_type || 'first_payment_only',
+      subscription_duration_months: commission?.subscription_duration_months?.toString() || '12'
     });
     setEditingAssignment(assignment.id);
     setShowAssignForm(true);
@@ -226,7 +285,11 @@ export default function PaymentStructurePage() {
       base_salary: '',
       overtime_rate: '',
       notes: '',
-      effective_date: new Date().toISOString().split('T')[0]
+      effective_date: new Date().toISOString().split('T')[0],
+      commission_type: 'gross',
+      subscription_commission_percentage: '5',
+      subscription_commission_type: 'first_payment_only',
+      subscription_duration_months: '12'
     });
     setEditingAssignment(null);
     setShowAssignForm(true);
@@ -245,7 +308,11 @@ export default function PaymentStructurePage() {
       base_salary: '',
       overtime_rate: '',
       notes: '',
-      effective_date: new Date().toISOString().split('T')[0]
+      effective_date: new Date().toISOString().split('T')[0],
+      commission_type: 'gross',
+      subscription_commission_percentage: '5',
+      subscription_commission_type: 'first_payment_only',
+      subscription_duration_months: '12'
     });
     setEditingAssignment(null);
     setSelectedUser(null);
@@ -303,6 +370,23 @@ export default function PaymentStructurePage() {
   const getUserAssignment = (userId: string) => {
     return assignments.find(a => a.user_id === userId);
   };
+
+  const getUserCommission = (userId: string) => {
+    return commissions.find(c => c.ghl_user_id === userId);
+  };
+
+  const COMMISSION_TYPES = [
+    { value: 'gross', label: 'Gross Revenue', description: '% of total revenue' },
+    { value: 'profit', label: 'Net Profit', description: '% of profit after expenses' },
+    { value: 'tiered', label: 'Tiered', description: 'Different rates at revenue levels' },
+    { value: 'flat', label: 'Flat Rate', description: 'Fixed amount per sale' }
+  ];
+
+  const SUBSCRIPTION_COMMISSION_TYPES = [
+    { value: 'first_payment_only', label: 'First Payment Only' },
+    { value: 'all_payments', label: 'All Payments' },
+    { value: 'duration_based', label: 'Duration Based' }
+  ];
 
   if (loading) {
     return (
@@ -439,42 +523,65 @@ export default function PaymentStructurePage() {
             {getAssignedUsers().map((user) => {
               const assignment = getUserAssignment(user.id);
               return (
-                <div key={user.id} className="bg-white border border-green-200 rounded-lg p-4">
-                  <div className="flex items-center justify-between">
+                <div key={user.id} className="bg-white border border-green-200 rounded-lg p-6">
+                  <div className="flex items-start justify-between">
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center space-x-2 mb-1">
-                        <h4 className="font-medium text-gray-900 truncate">{user.name}</h4>
-                        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                          ✓ Assigned
-                        </span>
-                      </div>
-                      <p className="text-sm text-gray-600 truncate">{user.email}</p>
+                      <h4 className="text-lg font-semibold text-gray-900 mb-2">{user.name}</h4>
+                      
+                      <p className="text-sm text-gray-600 mb-3">{user.email}</p>
+                      
                       {assignment && (
-                        <p className="text-sm font-medium text-green-700 mt-1">
-                          {getPaymentDescription(assignment)}
-                        </p>
+                        <div className="space-y-2">
+                          <div className="bg-gray-50 rounded-md px-3 py-2">
+                            <p className="text-sm font-medium text-gray-900">
+                              {getPaymentDescription(assignment)}
+                            </p>
+                          </div>
+                          
+                          {getUserCommission(user.id) && (
+                            <div className="text-xs text-gray-600 space-y-1">
+                              <p className="flex items-center">
+                                <span className="font-medium mr-1">One-time:</span>
+                                {getUserCommission(user.id)?.commission_percentage || assignment.commission_percentage || 10}% commission
+                              </p>
+                              <p className="flex items-center">
+                                <span className="font-medium mr-1">Recurring:</span>
+                                {getUserCommission(user.id)?.subscription_commission_percentage || 5}% commission
+                              </p>
+                            </div>
+                          )}
+                        </div>
                       )}
-                      <div className="flex items-center space-x-2 mt-1">
-                        <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                      
+                      <div className="flex items-center gap-2 mt-3">
+                        <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium ${
                           user.role === 'admin' 
                             ? 'bg-purple-100 text-purple-800' 
                             : 'bg-gray-100 text-gray-800'
                         }`}>
-                          {user.role || 'User'}
+                          {user.role || 'user'}
                         </span>
                         {user.phone && (
-                          <span className="text-xs text-gray-500">📞</span>
+                          <span className="inline-flex items-center text-xs text-gray-500">
+                            <Phone className="w-3 h-3 mr-1" />
+                            {user.phone}
+                          </span>
                         )}
                       </div>
                     </div>
-                    <div className="ml-4">
+                    
+                    <div className="flex flex-col items-end space-y-2">
                       <button
                         onClick={() => assignment && handleEdit(assignment)}
-                        className="inline-flex items-center space-x-1 px-3 py-1 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors"
+                        className="inline-flex items-center space-x-1.5 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors shadow-sm"
                       >
-                        <Edit2 className="w-3 h-3" />
+                        <Edit2 className="w-4 h-4" />
                         <span>Edit</span>
                       </button>
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                        <CheckCircle className="w-3 h-3 mr-1" />
+                        Assigned
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -526,25 +633,35 @@ export default function PaymentStructurePage() {
         </div>
       )}
 
-      {/* Assign/Edit Form */}
-      {showAssignForm && (
-        <div className="mb-6 bg-white border border-gray-200 rounded-lg p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-gray-900">
-              {editingAssignment ? 'Edit Payment Structure' : 'Assign Payment Structure'}
-              {selectedUser && (
-                <span className="text-sm font-normal text-gray-600 ml-2">
-                  for {selectedUser.name}
-                </span>
-              )}
-            </h2>
-            <button
+      {/* Modal Form */}
+      {showAssignForm && createPortal(
+        <div className="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+          <div className="flex min-h-screen items-center justify-center p-4 text-center sm:p-0">
+            {/* Background overlay */}
+            <div 
+              className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" 
               onClick={resetForm}
-              className="text-gray-400 hover:text-gray-600"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
+            />
+
+            {/* Modal panel */}
+            <div className="relative transform overflow-hidden rounded-lg bg-white text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-3xl max-h-[90vh] flex flex-col">
+              <div className="bg-white px-4 pb-4 pt-5 sm:p-6 sm:pb-4 overflow-y-auto flex-1">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-lg font-semibold text-gray-900">
+                    {editingAssignment ? 'Edit Payment Structure' : 'Assign Payment Structure'}
+                    {selectedUser && (
+                      <span className="text-sm font-normal text-gray-600 ml-2">
+                        for {selectedUser.name}
+                      </span>
+                    )}
+                  </h2>
+                  <button
+                    onClick={resetForm}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
@@ -670,6 +787,82 @@ export default function PaymentStructurePage() {
                 </>
               )}
 
+              {/* Commission Settings Section */}
+              <div className="col-span-2 border-t border-gray-200 pt-4 mt-4">
+                <h3 className="text-base font-semibold text-gray-900 mb-4">Commission Settings</h3>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Default Commission Type
+                </label>
+                <select
+                  value={formData.commission_type}
+                  onChange={(e) => setFormData({ ...formData, commission_type: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900"
+                >
+                  {COMMISSION_TYPES.map(type => (
+                    <option key={type.value} value={type.value}>
+                      {type.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  {COMMISSION_TYPES.find(t => t.value === formData.commission_type)?.description}
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Subscription Commission (%)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="100"
+                  value={formData.subscription_commission_percentage}
+                  onChange={(e) => setFormData({ ...formData, subscription_commission_percentage: e.target.value })}
+                  placeholder="5.00"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Commission rate for recurring/subscription sales
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Subscription Type
+                </label>
+                <select
+                  value={formData.subscription_commission_type}
+                  onChange={(e) => setFormData({ ...formData, subscription_commission_type: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900"
+                >
+                  {SUBSCRIPTION_COMMISSION_TYPES.map(type => (
+                    <option key={type.value} value={type.value}>
+                      {type.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {formData.subscription_commission_type === 'duration_based' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Commission Duration (Months)
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={formData.subscription_duration_months}
+                    onChange={(e) => setFormData({ ...formData, subscription_duration_months: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900"
+                  />
+                </div>
+              )}
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Effective Date *
@@ -697,14 +890,7 @@ export default function PaymentStructurePage() {
               </div>
             </div>
 
-            <div className="flex space-x-3">
-              <button
-                type="submit"
-                className="inline-flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                <Save className="w-4 h-4" />
-                <span>{editingAssignment ? 'Update' : 'Assign'} Payment Structure</span>
-              </button>
+            <div className="mt-6 flex justify-end space-x-3 border-t border-gray-200 pt-4">
               <button
                 type="button"
                 onClick={resetForm}
@@ -712,78 +898,32 @@ export default function PaymentStructurePage() {
               >
                 Cancel
               </button>
+              <button
+                type="submit"
+                className="inline-flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                <Save className="w-4 h-4" />
+                <span>{editingAssignment ? 'Update' : 'Assign'} Payment Structure</span>
+              </button>
             </div>
           </form>
-        </div>
-      )}
-
-      {/* Current Assignments */}
-      <div className="space-y-4">
-        {assignments.length === 0 ? (
-          <div className="text-center py-12 bg-gray-50 rounded-lg">
-            <DollarSign className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">No Payment Assignments</h3>
-            <p className="text-gray-600 mb-4">
-              Start by assigning payment structures to your GoHighLevel team members above.
-            </p>
-          </div>
-        ) : (
-          assignments.map((assignment) => (
-            <div key={assignment.id} className="bg-white border border-gray-200 rounded-lg p-6">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-4">
-                  <div className="flex-shrink-0">
-                    <User className="w-8 h-8 text-gray-400" />
-                  </div>
-                  <div>
-                    <div className="flex items-center space-x-2 mb-1">
-                      <h3 className="text-lg font-medium text-gray-900">{assignment.ghl_user_name}</h3>
-                      <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getTypeColor(assignment.payment_type)}`}>
-                        {PAYMENT_TYPES.find(t => t.value === assignment.payment_type)?.label || assignment.payment_type}
-                      </span>
-                    </div>
-                    <p className="text-sm text-gray-600">{assignment.ghl_user_email}</p>
-                    <p className="text-base font-medium text-gray-900 mt-1">
-                      {getPaymentDescription(assignment)}
-                    </p>
-                    {assignment.notes && (
-                      <p className="text-sm text-gray-600 mt-1">{assignment.notes}</p>
-                    )}
-                    <div className="flex items-center space-x-4 text-xs text-gray-500 mt-1">
-                      <span>Effective {new Date(assignment.effective_date).toLocaleDateString()}</span>
-                      <span>Added {new Date(assignment.created_at).toLocaleDateString()}</span>
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <button
-                    onClick={() => handleEdit(assignment)}
-                    className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                  >
-                    <Edit2 className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => handleDelete(assignment.id)}
-                    className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
               </div>
             </div>
-          ))
-        )}
-      </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
 
       {/* Info Box */}
       <div className="mt-8 bg-blue-50 border border-blue-200 rounded-lg p-4">
         <div className="flex items-start space-x-2">
           <AlertCircle className="w-5 h-5 text-blue-500 mt-0.5" />
           <div>
-            <h3 className="font-medium text-blue-900">About Payment Structures</h3>
+            <h3 className="font-medium text-blue-900">About Payment & Commission Structures</h3>
             <p className="text-blue-700 text-sm mt-1">
-              Payment structures are pulled from your GoHighLevel team and will be used in future updates for automatic payroll calculations, 
-              commission tracking, and financial reporting. Each user can have one active payment structure at a time.
+              Payment structures and commission settings are configured together for each employee. Base pay (hourly/salary) determines regular compensation, 
+              while commission settings control how sales commissions are calculated. Subscription commissions can be configured separately from one-time sale commissions.
             </p>
           </div>
         </div>

@@ -1,0 +1,32 @@
+{
+    "mcpServers": {
+        "ghl-mcp": {
+            "url": "https://services.leadconnectorhq.com/mcp/",
+            "headers": {
+                "Authorization": "Bearer {{GHL_MCP_TOKEN}}",
+                "locationId": "{{GHL_LOCATION_ID}}"
+            }
+        },
+        "supabase": {
+            "command": "npx",
+            "args": [
+                "-y",
+                "@supabase/mcp-server-supabase@latest",
+                "--read-only",
+                "--project-ref=hmulhwnftlsezkjuflxm"
+            ],
+            "env": {
+                "SUPABASE_ACCESS_TOKEN": "{{SUPABASE_ACCESS_TOKEN}}"
+            }
+        },
+        "ref": {
+            "command": "npx",
+            "args": [
+                "mcp-remote@0.1.0-0",
+                "https://api.ref.tools/mcp",
+                "--header",
+                "x-ref-api-key:ref-2d993b8896ac2f8a93a8"
+            ]
+        }
+    }
+}

@@ -70,13 +70,13 @@ export default function TestReceiptAIPage() {
     try {
       const formData = new FormData();
       formData.append('image', selectedFile);
-      formData.append('userPhone', '+1234567890'); // Mock phone for testing
-      formData.append('userEmail', 'test@example.com'); // Mock email for testing
+      formData.append('userPhone', '+1234567890'); // Default phone for testing
+      formData.append('userEmail', 'test@example.com'); // Default email for testing
 
       const response = await fetch('/api/receipts/process-image', {
         method: 'POST',
         body: formData,
-        credentials: 'include' // Include cookies for mock auth
+        credentials: 'include' // Include cookies for auth
       });
 
       const data = await response.json();

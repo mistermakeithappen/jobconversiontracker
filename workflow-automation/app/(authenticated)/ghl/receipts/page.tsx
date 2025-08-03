@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Receipt as ReceiptIcon, MessageSquare, Camera, Smartphone, RefreshCw, CheckCircle, Plus, TrendingUp, Eye, Calendar, DollarSign, Building } from 'lucide-react';
+import { Receipt as ReceiptIcon, MessageSquare, Camera, Smartphone, RefreshCw, CheckCircle, Plus, TrendingUp, Eye, Calendar, DollarSign, Building, Check } from 'lucide-react';
 import Link from 'next/link';
 
 interface Receipt {
@@ -11,6 +11,7 @@ interface Receipt {
   receipt_date?: string;
   category?: string;
   is_reimbursable?: boolean;
+  reimbursement_status?: string;
   opportunity_id?: string;
   opportunity_name?: string;
   created_at: string;
@@ -33,6 +34,7 @@ export default function GHLReceiptsPage() {
   });
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [receiptsLoading, setReceiptsLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<'pending' | 'reimbursed' | 'company'>('pending');
 
   useEffect(() => {
     checkConnectionStatus();
@@ -104,6 +106,36 @@ export default function GHLReceiptsPage() {
       console.error('Error fetching receipts:', error);
     }
   };
+
+  const markAsReimbursed = async (receiptId: string) => {
+    try {
+      const response = await fetch(`/api/receipts/${receiptId}/reimburse`, {
+        method: 'POST'
+      });
+      
+      if (response.ok) {
+        // Refresh receipts to update the UI
+        await fetchReceipts();
+      } else {
+        alert('Failed to mark receipt as reimbursed');
+      }
+    } catch (error) {
+      console.error('Error marking receipt as reimbursed:', error);
+      alert('Error marking receipt as reimbursed');
+    }
+  };
+
+  // Filter receipts based on active tab
+  const filteredReceipts = receipts.filter(receipt => {
+    if (activeTab === 'pending') {
+      return receipt.is_reimbursable && (!receipt.reimbursement_status || receipt.reimbursement_status === 'pending');
+    } else if (activeTab === 'reimbursed') {
+      return receipt.is_reimbursable && receipt.reimbursement_status === 'paid';
+    } else {
+      // Company card expenses
+      return !receipt.is_reimbursable;
+    }
+  });
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -223,7 +255,7 @@ export default function GHLReceiptsPage() {
         <div className="bg-white rounded-xl border border-gray-200 p-6">
           <div className="flex items-center space-x-3">
             <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-              <Receipt className="w-5 h-5 text-blue-600" />
+              <ReceiptIcon className="w-5 h-5 text-blue-600" />
             </div>
             <div>
               <p className="text-sm text-gray-500">Total Receipts</p>
@@ -247,7 +279,7 @@ export default function GHLReceiptsPage() {
         <div className="bg-white rounded-xl border border-gray-200 p-6">
           <div className="flex items-center space-x-3">
             <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center">
-              <Receipt className="w-5 h-5 text-red-600" />
+              <ReceiptIcon className="w-5 h-5 text-red-600" />
             </div>
             <div>
               <p className="text-sm text-gray-500">Non-Reimbursable</p>
@@ -315,37 +347,46 @@ export default function GHLReceiptsPage() {
         </div>
       </div>
 
-      {/* Features */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6">
-        <h3 className="text-xl font-semibold text-gray-900 mb-6">System Features</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {features.map((feature) => {
-            const Icon = feature.icon;
-            return (
-              <div key={feature.title} className="p-4 border border-gray-200 rounded-lg">
-                <div className="flex items-start space-x-3">
-                  <div className={`w-8 h-8 ${feature.color} rounded-lg flex items-center justify-center flex-shrink-0`}>
-                    <Icon className="w-4 h-4" />
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between mb-1">
-                      <h4 className="font-medium text-gray-900">{feature.title}</h4>
-                      <span className="text-xs text-green-600 font-medium">{feature.status}</span>
-                    </div>
-                    <p className="text-sm text-gray-600">{feature.description}</p>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
 
 
       {/* Receipts Table */}
       <div className="bg-white rounded-xl border border-gray-200 p-6">
         <div className="flex items-center justify-between mb-6">
-          <h3 className="text-xl font-semibold text-gray-900">Recent Receipts</h3>
+          <div className="flex items-center space-x-4">
+            <h3 className="text-xl font-semibold text-gray-900">Receipts</h3>
+            <div className="flex items-center bg-gray-100 rounded-lg p-1">
+              <button
+                onClick={() => setActiveTab('pending')}
+                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                  activeTab === 'pending'
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                Pending Reimbursement
+              </button>
+              <button
+                onClick={() => setActiveTab('reimbursed')}
+                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                  activeTab === 'reimbursed'
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                Reimbursed
+              </button>
+              <button
+                onClick={() => setActiveTab('company')}
+                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                  activeTab === 'company'
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                Company Card
+              </button>
+            </div>
+          </div>
           <button
             onClick={syncOpportunitiesAndFetchReceipts}
             className="inline-flex items-center space-x-2 px-3 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
@@ -360,12 +401,20 @@ export default function GHLReceiptsPage() {
             <RefreshCw className="w-8 h-8 animate-spin text-gray-400 mx-auto mb-2" />
             <p className="text-gray-500">Loading receipts...</p>
           </div>
-        ) : receipts.length === 0 ? (
+        ) : filteredReceipts.length === 0 ? (
           <div className="text-center py-12">
             <ReceiptIcon className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">No Receipts Yet</h3>
+            <h3 className="text-lg font-medium text-gray-900 mb-2">
+              {activeTab === 'pending' ? 'No Pending Receipts' : 
+               activeTab === 'reimbursed' ? 'No Reimbursed Receipts' : 
+               'No Company Card Receipts'}
+            </h3>
             <p className="text-gray-600 mb-4">
-              Start by testing the AI processing or have team members send receipts via SMS
+              {activeTab === 'pending' 
+                ? 'All reimbursable receipts have been processed!'
+                : activeTab === 'reimbursed'
+                ? 'No receipts have been marked as reimbursed yet.'
+                : 'No company card expenses recorded yet.'}
             </p>
             <Link
               href="/test-receipt-ai"
@@ -390,7 +439,7 @@ export default function GHLReceiptsPage() {
                 </tr>
               </thead>
               <tbody>
-                {receipts.map((receipt: Receipt) => (
+                {filteredReceipts.map((receipt: Receipt) => (
                   <tr key={receipt.id} className="border-b border-gray-100 hover:bg-gray-50">
                     <td className="py-3 px-4">
                       <div className="flex items-center space-x-2">
@@ -431,20 +480,32 @@ export default function GHLReceiptsPage() {
                     <td className="py-3 px-4">
                       <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
                         receipt.is_reimbursable
-                          ? 'bg-green-100 text-green-800'
-                          : 'bg-red-100 text-red-800'
+                          ? 'bg-red-100 text-red-800'
+                          : 'bg-green-100 text-green-800'
                       }`}>
                         {receipt.is_reimbursable ? 'Reimbursable' : 'Non-Reimbursable'}
                       </span>
                     </td>
                     <td className="py-3 px-4">
-                      <Link
-                        href={`/ghl/opportunities?highlight=${receipt.opportunity_id}`}
-                        className="inline-flex items-center space-x-1 px-2 py-1 text-sm text-blue-600 hover:text-blue-800 transition-colors"
-                      >
-                        <Eye className="w-3 h-3" />
-                        <span>View</span>
-                      </Link>
+                      <div className="flex items-center space-x-2">
+                        <Link
+                          href={`/ghl/opportunities?highlight=${receipt.opportunity_id}`}
+                          className="inline-flex items-center space-x-1 px-2 py-1 text-sm text-blue-600 hover:text-blue-800 transition-colors"
+                        >
+                          <Eye className="w-3 h-3" />
+                          <span>View</span>
+                        </Link>
+                        {activeTab === 'pending' && receipt.is_reimbursable && (
+                          <button
+                            onClick={() => markAsReimbursed(receipt.id)}
+                            className="inline-flex items-center space-x-1 px-3 py-1.5 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-md shadow-sm transition-all hover:shadow-md active:scale-95"
+                            title="Mark as reimbursed"
+                          >
+                            <Check className="w-4 h-4" />
+                            <span>Mark as Paid</span>
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}

@@ -1,7 +1,7 @@
 // GoHighLevel OAuth 2.0 Configuration
 export const GHL_CONFIG = {
-  // OAuth endpoints
-  authorizationUrl: 'https://marketplace.gohighlevel.com/oauth/chooselocation',
+  // OAuth endpoints - using leadconnectorhq domain as alternative
+  authorizationUrl: 'https://marketplace.leadconnectorhq.com/oauth/chooselocation',
   tokenUrl: 'https://services.leadconnectorhq.com/oauth/token',
   
   // API endpoints
@@ -13,7 +13,8 @@ export const GHL_CONFIG = {
   redirectUri: process.env.NEXT_PUBLIC_APP_URL + '/api/integrations/automake/callback',
   
   // Scopes needed for the integration
-  scopes: 'contacts.readonly contacts.write opportunities.readonly opportunities.write locations.readonly conversations.readonly conversations.write users.readonly',
+  // Updated to include all invoice-related scopes for estimates support
+  scopes: 'contacts.readonly contacts.write opportunities.readonly opportunities.write locations.readonly conversations.readonly conversations.write users.readonly products.readonly invoices.readonly invoices.write invoices/schedule.readonly invoices/schedule.write invoices/template.readonly invoices/template.write calendars.readonly calendars.write',
   
   // API version (GoHighLevel uses specific date format)
   apiVersion: '2021-07-28'
@@ -47,8 +48,10 @@ export const GHL_ENDPOINTS = {
   
   // Calendars
   calendars: {
-    list: '/calendars/',
-    appointments: '/appointments/'
+    list: '/calendars',
+    get: (id: string) => `/calendars/${id}`,
+    appointments: '/appointments/',
+    groups: '/calendars/groups'
   },
   
   // Forms
@@ -78,5 +81,32 @@ export const GHL_ENDPOINTS = {
     messages: (conversationId: string) => `/conversations/${conversationId}/messages`,
     sendMessage: (conversationId: string) => `/conversations/${conversationId}/messages`,
     createConversation: '/conversations'
+  },
+  
+  // Products & Prices
+  products: {
+    list: '/products/',
+    search: '/products/search',
+    get: (id: string) => `/products/${id}`,
+    prices: (productId: string) => `/products/${productId}/prices`
+  },
+  
+  // Payments & Invoices
+  payments: {
+    list: '/payments/transactions',
+    get: (id: string) => `/payments/transactions/${id}`,
+    orders: '/payments/orders',
+    subscriptions: '/payments/subscriptions',
+    invoices: '/invoices/',
+    invoice: (id: string) => `/invoices/${id}`
+  },
+  
+  // Estimates
+  estimates: {
+    list: '/invoices/estimate/list',
+    get: (id: string) => `/invoices/estimate/${id}`,
+    create: '/invoices/estimate/',
+    update: (id: string) => `/invoices/estimate/${id}`,
+    send: (id: string) => `/invoices/estimate/${id}/send`
   }
 };

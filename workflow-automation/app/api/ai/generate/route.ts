@@ -1,5 +1,5 @@
-import { NextResponse } from "next/server";
-import { mockAuthServer } from "@/lib/auth/mock-auth-server";
+import { NextRequest, NextResponse } from "next/server";
+import { requireAuth } from "@/lib/auth/production-auth-server";
 
 // This is a mock AI generation function
 // In production, you would use OpenAI or Anthropic API
@@ -152,9 +152,9 @@ async function generateWorkflowFromPrompt(prompt: string) {
   };
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
-    const { userId } = mockAuthServer();
+    const { userId } = await requireAuth(request);
     const body = await request.json();
     const { prompt } = body;
 

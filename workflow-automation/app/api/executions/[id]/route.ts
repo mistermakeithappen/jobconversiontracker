@@ -1,5 +1,5 @@
-import { NextResponse } from 'next/server';
-import { mockAuthServer } from '@/lib/auth/mock-auth-server';
+import { NextRequest, NextResponse } from 'next/server';
+import { requireAuth } from '@/lib/auth/production-auth-server';
 import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(
@@ -7,12 +7,11 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-export async function GET(
-  request: Request,
+export async function GET(request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
-    const { userId } = mockAuthServer();
+    const { userId } = await requireAuth(request);
     
     if (!userId) {
       return new NextResponse('Unauthorized', { status: 401 });

@@ -126,7 +126,12 @@ export default function IntegrationsPage() {
         setShowAddForm(false);
         setFormData({ provider: 'openai', apiKey: '', keyName: '' });
       } else {
-        setError(data.error || 'Failed to add API key');
+        // Show detailed error message for specific cases
+        if (data.details) {
+          setError(`${data.error}: ${data.details}`);
+        } else {
+          setError(data.error || 'Failed to add API key');
+        }
       }
     } catch (error) {
       setError('Failed to add API key');
@@ -173,6 +178,7 @@ export default function IntegrationsPage() {
       case 'google': return 'bg-yellow-100 text-yellow-800';
       case 'azure': return 'bg-purple-100 text-purple-800';
       case 'notion': return 'bg-gray-100 text-gray-800';
+      case 'ghlpit': return 'bg-orange-100 text-orange-800';
       default: return 'bg-gray-100 text-gray-800';
     }
   };
@@ -218,6 +224,14 @@ export default function IntegrationsPage() {
           linkText: 'Get Azure OpenAI Key',
           link: 'https://portal.azure.com/',
           placeholder: 'your-azure-key'
+        };
+      case 'ghlpit':
+        return {
+          name: 'GoHighLevel Private Integration',
+          description: 'Used for advanced GoHighLevel features like estimates and AI-powered automation',
+          linkText: 'Create Private Integration',
+          link: 'https://app.gohighlevel.com/settings/private-integrations',
+          placeholder: 'pit-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx'
         };
       default:
         return {
@@ -376,6 +390,7 @@ export default function IntegrationsPage() {
                     <option value="anthropic">Anthropic</option>
                     <option value="google">Google AI</option>
                     <option value="azure">Azure OpenAI</option>
+                    <option value="ghlpit">GoHighLevel Private Integration</option>
                   </select>
                   
                   {/* Provider Info */}

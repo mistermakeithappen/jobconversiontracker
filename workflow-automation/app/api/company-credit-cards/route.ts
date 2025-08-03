@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { mockAuthServer } from '@/lib/auth/mock-auth-server';
+import { requireAuthWithOrg } from '@/lib/auth/production-auth-server';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -15,15 +15,16 @@ const supabase = createClient(
 
 export async function GET(request: NextRequest) {
   try {
-    const auth = mockAuthServer();
-    if (!auth?.userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const { userId, user, organization } = await requireAuthWithOrg(request);
+    if (!organization) {
+      return NextResponse.json({ error: 'No organization found' }, { status: 401 });
     }
 
     const { data, error } = await supabase
       .from('company_credit_cards')
       .select('*')
-      .eq('user_id', auth.userId)
+      .eq('organization_id', organization.organizationId)
+      .eq('is_active', true)
       .order('created_at', { ascending: false });
 
     if (error) {
@@ -35,10 +36,10 @@ export async function GET(request: NextRequest) {
     const cards = (data || []).map(card => ({
       id: card.id,
       cardName: card.card_name,
-      lastFourDigits: card.last_four_digits,
+      lastFourDigits: card.last_four, // Fixed: was last_four_digits, should be last_four
       cardType: card.card_type,
-      isReimbursable: card.is_reimbursable,
-      notes: card.notes,
+      isReimbursable: false, // Company cards are never reimbursable
+      notes: null, // No notes column in DB
       createdAt: card.created_at,
       updatedAt: card.updated_at,
       isActive: card.is_active
@@ -53,9 +54,9 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const auth = mockAuthServer();
-    if (!auth?.userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const { userId, user, organization } = await requireAuthWithOrg(request);
+    if (!organization) {
+      return NextResponse.json({ error: 'No organization found' }, { status: 401 });
     }
 
     const body = await request.json();
@@ -71,13 +72,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Last four digits must be exactly 4 numbers' }, { status: 400 });
     }
 
-    // Check for duplicate last four digits for this user
+    // Check for duplicate last four digits in this organization
     const { data: existing } = await supabase
       .from('company_credit_cards')
       .select('id')
-      .eq('user_id', auth.userId)
-      .eq('last_four_digits', lastFourDigits)
-      .eq('is_active', true)
+      .eq('organization_id', organization.organizationId)
+      .eq('last_four', lastFourDigits)
       .single();
 
     if (existing) {
@@ -89,12 +89,12 @@ export async function POST(request: NextRequest) {
     const { data, error } = await supabase
       .from('company_credit_cards')
       .insert({
-        user_id: auth.userId,
+        organization_id: organization.organizationId,
         card_name: cardName,
-        last_four_digits: lastFourDigits,
+        last_four: lastFourDigits,
         card_type: cardType,
-        is_reimbursable: isReimbursable || false,
-        notes: notes || null
+        assigned_to: null, // Can be assigned later if needed
+        is_active: true
       })
       .select()
       .single();
@@ -108,10 +108,10 @@ export async function POST(request: NextRequest) {
     const card = {
       id: data.id,
       cardName: data.card_name,
-      lastFourDigits: data.last_four_digits,
+      lastFourDigits: data.last_four,
       cardType: data.card_type,
-      isReimbursable: data.is_reimbursable,
-      notes: data.notes,
+      isReimbursable: false, // Company cards are never reimbursable
+      notes: null, // No notes column in DB
       createdAt: data.created_at,
       updatedAt: data.updated_at,
       isActive: data.is_active
@@ -126,9 +126,9 @@ export async function POST(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
-    const auth = mockAuthServer();
-    if (!auth?.userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const { userId, user, organization } = await requireAuthWithOrg(request);
+    if (!organization) {
+      return NextResponse.json({ error: 'No organization found' }, { status: 401 });
     }
 
     const body = await request.json();
@@ -148,9 +148,8 @@ export async function PUT(request: NextRequest) {
       const { data: existing } = await supabase
         .from('company_credit_cards')
         .select('id')
-        .eq('user_id', auth.userId)
-        .eq('last_four_digits', lastFourDigits)
-        .eq('is_active', true)
+        .eq('organization_id', organization.organizationId)
+        .eq('last_four', lastFourDigits)
         .neq('id', id)
         .single();
 
@@ -163,16 +162,15 @@ export async function PUT(request: NextRequest) {
 
     const updateData: any = {};
     if (cardName !== undefined) updateData.card_name = cardName;
-    if (lastFourDigits !== undefined) updateData.last_four_digits = lastFourDigits;
+    if (lastFourDigits !== undefined) updateData.last_four = lastFourDigits;
     if (cardType !== undefined) updateData.card_type = cardType;
-    if (isReimbursable !== undefined) updateData.is_reimbursable = isReimbursable;
-    if (notes !== undefined) updateData.notes = notes;
+    // No is_reimbursable or notes columns in the database
 
     const { data, error } = await supabase
       .from('company_credit_cards')
       .update(updateData)
       .eq('id', id)
-      .eq('user_id', auth.userId)
+      .eq('organization_id', organization.organizationId)
       .select()
       .single();
 
@@ -189,10 +187,10 @@ export async function PUT(request: NextRequest) {
     const card = {
       id: data.id,
       cardName: data.card_name,
-      lastFourDigits: data.last_four_digits,
+      lastFourDigits: data.last_four,
       cardType: data.card_type,
-      isReimbursable: data.is_reimbursable,
-      notes: data.notes,
+      isReimbursable: false, // Company cards are never reimbursable
+      notes: null, // No notes column in DB
       createdAt: data.created_at,
       updatedAt: data.updated_at,
       isActive: data.is_active
@@ -207,9 +205,9 @@ export async function PUT(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const auth = mockAuthServer();
-    if (!auth?.userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const { userId, user, organization } = await requireAuthWithOrg(request);
+    if (!organization) {
+      return NextResponse.json({ error: 'No organization found' }, { status: 401 });
     }
 
     const { searchParams } = new URL(request.url);
@@ -219,12 +217,12 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Card ID is required' }, { status: 400 });
     }
 
-    // Soft delete by setting is_active to false
+    // Hard delete from database
     const { data, error } = await supabase
       .from('company_credit_cards')
-      .update({ is_active: false })
+      .delete()
       .eq('id', id)
-      .eq('user_id', auth.userId)
+      .eq('organization_id', organization.organizationId)
       .select()
       .single();
 

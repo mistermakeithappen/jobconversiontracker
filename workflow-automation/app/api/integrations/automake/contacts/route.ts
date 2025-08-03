@@ -1,37 +1,39 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import { mockAuthServer } from '@/lib/auth/mock-auth-server';
+import { requireAuth, getServiceSupabase } from '@/lib/auth/production-auth-server';
+import { getUserOrganization } from '@/lib/auth/organization-helper';
 import { createGHLClient } from '@/lib/integrations/gohighlevel/client';
 import { encrypt } from '@/lib/utils/encryption';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
 export async function GET(request: NextRequest) {
   try {
-    const { userId } = mockAuthServer();
+    const { userId } = await requireAuth(request);
+    const organization = await getUserOrganization(userId);
+    
+    if (!organization) {
+      return NextResponse.json({ error: 'No organization found' }, { status: 400 });
+    }
+    
+    const supabase = getServiceSupabase();
     const searchParams = request.nextUrl.searchParams;
     const limit = parseInt(searchParams.get('limit') || '100');
     const startAfterId = searchParams.get('startAfterId') || undefined;
     const query = searchParams.get('query') || undefined;
     
-    // Get user's GHL integration
+    // Get organization's GHL integration
     const { data: integration, error } = await supabase
       .from('integrations')
       .select('*')
-      .eq('user_id', userId)
+      .eq('organization_id', organization.organizationId)
       .eq('type', 'gohighlevel')
       .single();
     
-    if (error || !integration || !integration.config.encryptedTokens) {
+    if (error || !integration || !integration.config?.encryptedTokens) {
       return NextResponse.json({ error: 'GoHighLevel not connected' }, { status: 400 });
     }
     
     // Create GHL client with token refresh callback
     const ghlClient = await createGHLClient(
-      integration.config.encryptedTokens,
+      integration.config?.encryptedTokens || '',
       async (newTokens) => {
         // Update tokens in database when refreshed
         const encryptedTokens = encrypt(JSON.stringify(newTokens));

@@ -1,21 +1,23 @@
-import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import { mockAuthServer } from '@/lib/auth/mock-auth-server';
+import { NextRequest, NextResponse } from 'next/server';
+import { getServiceSupabase } from '@/lib/auth/production-auth-server';
+import { requireAuth } from '@/lib/auth/production-auth-server';
+import { getUserOrganization } from '@/lib/auth/organization-helper';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
-export async function POST() {
+export async function POST(request: NextRequest) {
   try {
-    const { userId } = mockAuthServer();
+    const { userId } = await requireAuth(request);
+    const organization = await getUserOrganization(userId);
+    const supabase = getServiceSupabase();
     
-    // Get user's GHL integration
+    if (!organization) {
+      return NextResponse.json({ error: 'No organization found' }, { status: 401 });
+    }
+    
+    // Get organization's GHL integration
     const { data: integration, error } = await supabase
       .from('integrations')
       .select('*')
-      .eq('user_id', userId)
+      .eq('organization_id', organization.organizationId)
       .eq('type', 'gohighlevel')
       .single();
     

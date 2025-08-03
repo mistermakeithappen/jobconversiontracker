@@ -6,7 +6,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { ArrowLeft, Save, Play, Settings, Loader2, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { useParams } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
-import { useMockAuth } from '@/lib/auth/mock-auth';
+import { useAuth } from '@/lib/auth/auth-context';
 import { WorkflowNode, WorkflowEdge, ExecutionResult } from '@/types/api';
 
 // Dynamic import to avoid SSR issues with React Flow
@@ -31,7 +31,7 @@ export default function EditWorkflowPage() {
   const [isExecuting, setIsExecuting] = useState(false);
   const [executionStatus, setExecutionStatus] = useState<ExecutionResult | null>(null);
   const [recentExecutions, setRecentExecutions] = useState<ExecutionResult[]>([]);
-  const { } = useMockAuth(); // Auth context available but userId not needed here
+  const { } = useAuth(); // Auth context available but userId not needed here
 
   // Load workflow data
   useEffect(() => {

@@ -1,5 +1,6 @@
 import { GHL_CONFIG, GHL_ENDPOINTS } from './config';
 import { decrypt } from '@/lib/utils/encryption';
+import { GHLMCPClient, createGHLMCPClient } from '@/lib/mcp/ghl-mcp-client';
 
 export interface GHLTokens {
   accessToken: string;
@@ -16,6 +17,8 @@ export class GHLClient {
   private expiresAt: number;
   private locationId: string;
   private onTokenRefresh?: (tokens: GHLTokens) => Promise<void>;
+  private mcpClient?: GHLMCPClient;
+  private mcpEnabled: boolean = false;
 
   constructor(tokens: GHLTokens, onTokenRefresh?: (tokens: GHLTokens) => Promise<void>) {
     this.accessToken = tokens.accessToken;
@@ -24,10 +27,42 @@ export class GHLClient {
     this.locationId = tokens.locationId || '';
     this.onTokenRefresh = onTokenRefresh;
     
-    console.log('GHL Client initialized with locationId:', this.locationId);
     if (!this.locationId) {
       console.warn('GHL Client initialized without locationId - some API calls may fail');
     }
+  }
+
+  // Initialize MCP client if credentials are available
+  async initializeMCP(mcpToken?: string): Promise<boolean> {
+    try {
+      if (!mcpToken || !this.locationId) {
+        return false;
+      }
+
+      const client = await createGHLMCPClient({
+        mcpToken,
+        locationId: this.locationId
+      });
+
+      if (client) {
+        this.mcpClient = client;
+        this.mcpEnabled = true;
+        return true;
+      }
+    } catch (error) {
+      console.error('Failed to initialize MCP client:', error);
+    }
+    return false;
+  }
+
+  // Check if MCP is available
+  hasMCP(): boolean {
+    return this.mcpEnabled && !!this.mcpClient;
+  }
+
+  // Get the location ID
+  getLocationId(): string {
+    return this.locationId;
   }
 
   private async refreshAccessToken(): Promise<void> {
@@ -46,7 +81,14 @@ export class GHLClient {
       });
 
       if (!response.ok) {
-        throw new Error(`Token refresh failed: ${response.statusText}`);
+        const errorText = await response.text();
+        console.error('Token refresh failed:', {
+          status: response.status,
+          statusText: response.statusText,
+          error: errorText,
+          refreshToken: this.refreshToken ? 'exists' : 'missing'
+        });
+        throw new Error(`Token refresh failed: ${response.statusText} - ${errorText}`);
       }
 
       const data = await response.json();
@@ -75,7 +117,6 @@ export class GHLClient {
   async makeRequest(endpoint: string, options: RequestInit = {}): Promise<any> {
     // Check if token needs refresh (5 minutes buffer)
     if (Date.now() >= this.expiresAt - (5 * 60 * 1000)) {
-      console.log('Token expired, refreshing...');
       await this.refreshAccessToken();
     }
 
@@ -88,16 +129,6 @@ export class GHLClient {
       ...options.headers,
     };
     
-    // Log the first few characters of the token for debugging (not the full token for security)
-    console.log('Using authorization token starting with:', this.accessToken.substring(0, 20) + '...');
-    
-    console.log('Making GHL API request:', {
-      url,
-      method: options.method || 'GET',
-      endpoint,
-      tokenExpiry: new Date(this.expiresAt).toISOString(),
-      currentTime: new Date().toISOString()
-    });
 
     const response = await fetch(url, {
       ...options,
@@ -105,8 +136,29 @@ export class GHLClient {
     });
 
     if (response.status === 401) {
-      console.log('Got 401, attempting token refresh...');
-      // Try refreshing token once and retry
+      // Check if it's a scope issue before trying to refresh
+      const errorText = await response.text();
+      let errorData;
+      try {
+        errorData = JSON.parse(errorText);
+      } catch {
+        errorData = { message: errorText };
+      }
+      
+      // If it's a scope authorization error, don't try to refresh
+      if (errorData.message && errorData.message.includes('not authorized for this scope')) {
+        console.error('GHL API Scope Error:', {
+          status: response.status,
+          message: errorData.message,
+          url: response.url
+        });
+        const error = new Error(errorData.message || 'Not authorized for this scope');
+        (error as any).statusCode = 401;
+        (error as any).isAuthorizationError = true;
+        throw error;
+      }
+      
+      // Otherwise, try refreshing token once and retry
       await this.refreshAccessToken();
       
       const retryResponse = await fetch(url, {
@@ -118,11 +170,11 @@ export class GHLClient {
       });
 
       if (!retryResponse.ok) {
-        const errorText = await retryResponse.text();
+        const retryErrorText = await retryResponse.text();
         console.error('Retry after token refresh failed:', {
           status: retryResponse.status,
           statusText: retryResponse.statusText,
-          body: errorText
+          body: retryErrorText
         });
         throw new Error(`API request failed after token refresh: ${retryResponse.statusText}`);
       }
@@ -152,17 +204,79 @@ export class GHLClient {
     return response.json();
   }
 
+  // Make request using Private Integration Token (for estimates and other PIT-only endpoints)
+  async makeRequestWithPIT(endpoint: string, options: RequestInit = {}): Promise<any> {
+    if (!this.mcpClient) {
+      throw new Error('MCP client not initialized. Private Integration Token required.');
+    }
+    
+    const url = `${GHL_CONFIG.apiBaseUrl}${endpoint}`;
+    
+    // Get the PIT token from MCP client
+    const pitToken = (this.mcpClient as any).mcpToken;
+    if (!pitToken) {
+      throw new Error('Private Integration Token not available');
+    }
+    
+    const headers = {
+      'Authorization': `Bearer ${pitToken}`,
+      'Version': GHL_CONFIG.apiVersion,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      ...options.headers,
+    };
+    
+    const response = await fetch(url, {
+      ...options,
+      headers,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('GHL PIT API Response Error:', {
+        status: response.status,
+        statusText: response.statusText,
+        body: errorText,
+        url: response.url
+      });
+      
+      let error;
+      try {
+        error = JSON.parse(errorText);
+      } catch {
+        error = { message: errorText };
+      }
+      
+      throw new Error(error.message || `API request failed: ${response.status} ${response.statusText}`);
+    }
+
+    return response.json();
+  }
+
   // Contacts API
   async getContacts(params?: {
     limit?: number;
     startAfterId?: string;
+    startAfter?: number;
     query?: string;
     locationId?: string;
   }) {
+    // Try MCP first if available
+    if (this.mcpEnabled && this.mcpClient) {
+      try {
+        const result = await this.mcpClient.getContacts({
+          limit: params?.limit,
+          query: params?.query
+        });
+        return result;
+      } catch (error) {
+      }
+    }
     const queryParams = new URLSearchParams({
       locationId: params?.locationId || this.locationId,
       limit: String(params?.limit || 100), // GHL supports up to 100
       ...(params?.startAfterId && { startAfterId: params.startAfterId }),
+      ...(params?.startAfter && { startAfter: String(params.startAfter) }),
       ...(params?.query && { query: params.query }),
     });
 
@@ -195,7 +309,6 @@ export class GHLClient {
     query?: string;
     maxResults?: number;
   }) {
-    console.log('Fetching ALL contacts with pagination...');
     
     const allContacts: any[] = [];
     let startAfterId: string | undefined = undefined;
@@ -207,7 +320,6 @@ export class GHLClient {
     try {
       do {
         requestCount++;
-        console.log(`Fetching contact batch ${requestCount} (startAfterId: ${startAfterId || 'none'})`);
         
         const queryParams = new URLSearchParams({
           locationId: params?.locationId || this.locationId,
@@ -222,25 +334,21 @@ export class GHLClient {
         allContacts.push(...batchContacts);
         totalFetched += batchContacts.length;
         
-        console.log(`Contact batch ${requestCount}: ${batchContacts.length} contacts, Total: ${totalFetched}`);
         
         // Check if we have more data to fetch
         startAfterId = response.meta?.startAfterId;
         
         // Safety checks
         if (totalFetched >= maxResults) {
-          console.log(`Reached maximum limit of ${maxResults} contacts`);
           break;
         }
         
         if (requestCount >= 100) { // Prevent infinite loops
-          console.log('Reached maximum request limit (100 requests)');
           break;
         }
         
         // If we got less than the batch size, we're probably at the end
         if (batchContacts.length < batchSize) {
-          console.log('Received partial batch, likely reached end of contact data');
           break;
         }
         
@@ -251,7 +359,6 @@ export class GHLClient {
         
       } while (startAfterId);
       
-      console.log(`Contact pagination complete: ${totalFetched} total contacts fetched in ${requestCount} requests`);
       
       return {
         contacts: allContacts,
@@ -282,6 +389,15 @@ export class GHLClient {
 
   // Pipelines API
   async getPipelines() {
+    // Try MCP first if available
+    if (this.mcpEnabled && this.mcpClient) {
+      try {
+        const result = await this.mcpClient.getPipelines();
+        return result;
+      } catch (error) {
+      }
+    }
+
     const queryParams = new URLSearchParams({
       locationId: this.locationId,
     });
@@ -297,7 +413,6 @@ export class GHLClient {
     pipelineId?: string;
     includeAll?: boolean;
   }) {
-    console.log('Fetching opportunities using search endpoint...');
     
     try {
       const searchParams = {
@@ -314,15 +429,9 @@ export class GHLClient {
         }
       });
 
-      console.log('Searching opportunities with params:', searchParams);
       
       const response = await this.makeRequest(`${GHL_ENDPOINTS.opportunities.search}?${queryParams}`);
       
-      console.log('Opportunities search response:', {
-        count: response.opportunities?.length || 0,
-        meta: response.meta
-      });
-
       return {
         opportunities: response.opportunities || [],
         total: response.meta?.total || response.opportunities?.length || 0,
@@ -351,7 +460,6 @@ export class GHLClient {
     assignedTo?: string;
     contactId?: string;
   }) {
-    console.log('Searching opportunities with advanced filters...');
     
     const searchParams = {
       location_id: params?.locationId || this.locationId,
@@ -371,7 +479,6 @@ export class GHLClient {
       }
     });
 
-    console.log('Advanced opportunity search params:', searchParams);
     
     const response = await this.makeRequest(`${GHL_ENDPOINTS.opportunities.search}?${queryParams}`);
     
@@ -391,7 +498,6 @@ export class GHLClient {
     contactId?: string;
     maxResults?: number; // Safety limit to prevent infinite loops
   }) {
-    console.log('Fetching ALL opportunities with pagination...');
     
     const allOpportunities: any[] = [];
     let startAfterId: string | undefined = undefined;
@@ -403,7 +509,6 @@ export class GHLClient {
     try {
       do {
         requestCount++;
-        console.log(`Fetching batch ${requestCount} (startAfterId: ${startAfterId || 'none'})`);
         
         const searchParams = {
           location_id: params?.locationId || this.locationId,
@@ -429,25 +534,21 @@ export class GHLClient {
         allOpportunities.push(...batchOpportunities);
         totalFetched += batchOpportunities.length;
         
-        console.log(`Batch ${requestCount}: ${batchOpportunities.length} opportunities, Total: ${totalFetched}`);
         
         // Check if we have more data to fetch
         startAfterId = response.meta?.startAfterId;
         
         // Safety checks
         if (totalFetched >= maxResults) {
-          console.log(`Reached maximum limit of ${maxResults} opportunities`);
           break;
         }
         
         if (requestCount >= 100) { // Prevent infinite loops
-          console.log('Reached maximum request limit (100 requests)');
           break;
         }
         
         // If we got less than the batch size, we're probably at the end
         if (batchOpportunities.length < batchSize) {
-          console.log('Received partial batch, likely reached end of data');
           break;
         }
         
@@ -458,7 +559,6 @@ export class GHLClient {
         
       } while (startAfterId);
       
-      console.log(`Pagination complete: ${totalFetched} total opportunities fetched in ${requestCount} requests`);
       
       return {
         opportunities: allOpportunities,
@@ -537,6 +637,15 @@ export class GHLClient {
 
     return this.makeRequest(`${GHL_ENDPOINTS.calendars.appointments}?${queryParams}`);
   }
+  
+  // Calendars API
+  async getCalendars() {
+    const queryParams = new URLSearchParams({
+      locationId: this.locationId,
+    });
+
+    return this.makeRequest(`${GHL_ENDPOINTS.calendars.list}?${queryParams}`);
+  }
 
   // Location API
   async getLocation() {
@@ -559,13 +668,20 @@ export class GHLClient {
     startAfter?: string;
     locationId?: string;
   }) {
+    // Try MCP first if available
+    if (this.mcpEnabled && this.mcpClient) {
+      try {
+        const result = await this.mcpClient.getUsers();
+        return result;
+      } catch (error) {
+      }
+    }
     const locationId = params?.locationId || this.locationId;
     const queryParams = new URLSearchParams({
       locationId: locationId,
       ...(params?.startAfter && { startAfter: params.startAfter }),
     });
 
-    console.log(`Fetching users from GoHighLevel for location: ${locationId}`);
     
     // Use the working endpoint: /users/ with locationId parameter (no limit parameter)
     return this.makeRequest(`${GHL_ENDPOINTS.users.list}?${queryParams}`);
@@ -681,14 +797,266 @@ export class GHLClient {
       message
     });
   }
+  
+  // Products API
+  async getProducts(params?: {
+    limit?: number;
+    startAfterId?: string;
+    locationId?: string;
+  }) {
+    const locationId = params?.locationId || this.locationId;
+    
+    if (!locationId) {
+      console.error('No locationId available for products request');
+      return { products: [], error: 'Location ID is required for fetching products' };
+    }
+    
+    const queryParams = new URLSearchParams({
+      locationId: locationId,
+      limit: String(params?.limit || 100),
+      ...(params?.startAfterId && { startAfterId: params.startAfterId })
+    });
+
+    return this.makeRequest(`${GHL_ENDPOINTS.products.list}?${queryParams}`);
+  }
+  
+  async searchProducts(params?: {
+    limit?: number;
+    startAfterId?: string;
+    locationId?: string;
+    query?: string;
+  }) {
+    const queryParams = new URLSearchParams({
+      locationId: params?.locationId || this.locationId,
+      limit: String(params?.limit || 100),
+      ...(params?.startAfterId && { startAfterId: params.startAfterId }),
+      ...(params?.query && { query: params.query })
+    });
+
+    return this.makeRequest(`${GHL_ENDPOINTS.products.search}?${queryParams}`);
+  }
+
+  async getProductPrices(productId: string) {
+    if (!productId) {
+      console.error('Product ID is required for fetching prices');
+      return { prices: [], error: 'Product ID is required' };
+    }
+    
+    try {
+      return await this.makeRequest(GHL_ENDPOINTS.products.prices(productId));
+    } catch (error) {
+      console.error(`Error fetching prices for product ${productId}:`, error);
+      return { prices: [] };
+    }
+  }
+  
+  async getAllProducts(params?: {
+    locationId?: string;
+    maxResults?: number;
+  }) {
+    
+    const allProducts: any[] = [];
+    let startAfterId: string | undefined = undefined;
+    let totalFetched = 0;
+    const maxResults = params?.maxResults || 1000; // Lower limit for products
+    const batchSize = 100;
+    let requestCount = 0;
+    
+    try {
+      do {
+        requestCount++;
+        
+        const response = await this.getProducts({
+          locationId: params?.locationId,
+          limit: batchSize,
+          startAfterId
+        });
+        
+        
+        // Handle different possible response structures
+        const batchProducts = response.products || response.data || response || [];
+        const productsArray = Array.isArray(batchProducts) ? batchProducts : [];
+        
+        allProducts.push(...productsArray);
+        totalFetched += productsArray.length;
+        
+        
+        // Check for pagination - GoHighLevel uses different pagination markers
+        if (response.meta?.startAfterId) {
+          startAfterId = response.meta.startAfterId;
+        } else if (productsArray.length > 0) {
+          // Use the last product's ID as the startAfterId
+          const lastProduct = productsArray[productsArray.length - 1];
+          startAfterId = lastProduct._id || lastProduct.id;
+        } else {
+          startAfterId = undefined;
+        }
+        
+        if (totalFetched >= maxResults || requestCount >= 50 || batchProducts.length < batchSize) {
+          break;
+        }
+        
+        if (startAfterId) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        
+      } while (startAfterId);
+      
+      
+      return {
+        products: allProducts,
+        total: totalFetched,
+        requestCount
+      };
+      
+    } catch (error) {
+      console.error('Error fetching all products:', error);
+      return {
+        products: allProducts,
+        total: totalFetched,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+  }
+  
+  async getProduct(productId: string) {
+    return this.makeRequest(GHL_ENDPOINTS.products.get(productId));
+  }
+  
+  // Payments API
+  async getPaymentTransactions(params?: {
+    limit?: number;
+    startAfterId?: string;
+    startAfter?: Date;
+    endBefore?: Date;
+    contactId?: string;
+    subscriptionId?: string;
+  }) {
+    const queryParams = new URLSearchParams({
+      locationId: this.locationId,
+      limit: String(params?.limit || 100),
+      ...(params?.startAfterId && { startAfterId: params.startAfterId }),
+      ...(params?.startAfter && { startAfter: params.startAfter.toISOString() }),
+      ...(params?.endBefore && { endBefore: params.endBefore.toISOString() }),
+      ...(params?.contactId && { contactId: params.contactId }),
+      ...(params?.subscriptionId && { subscriptionId: params.subscriptionId })
+    });
+
+    return this.makeRequest(`${GHL_ENDPOINTS.payments.list}?${queryParams}`);
+  }
+  
+  async getPaymentTransaction(transactionId: string) {
+    return this.makeRequest(GHL_ENDPOINTS.payments.get(transactionId));
+  }
+  
+  async getPaymentOrders(params?: {
+    limit?: number;
+    startAfterId?: string;
+    contactId?: string;
+  }) {
+    const queryParams = new URLSearchParams({
+      locationId: this.locationId,
+      limit: String(params?.limit || 100),
+      ...(params?.startAfterId && { startAfterId: params.startAfterId }),
+      ...(params?.contactId && { contactId: params.contactId })
+    });
+
+    return this.makeRequest(`${GHL_ENDPOINTS.payments.orders}?${queryParams}`);
+  }
+  
+  async getSubscriptions(params?: {
+    limit?: number;
+    startAfterId?: string;
+    contactId?: string;
+    status?: 'active' | 'canceled' | 'past_due' | 'trialing';
+  }) {
+    const queryParams = new URLSearchParams({
+      altId: this.locationId,
+      altType: 'location',
+      limit: String(params?.limit || 100),
+      ...(params?.startAfterId && { startAfterId: params.startAfterId }),
+      ...(params?.contactId && { contactId: params.contactId }),
+      ...(params?.status && { status: params.status })
+    });
+
+    return this.makeRequest(`${GHL_ENDPOINTS.payments.subscriptions}?${queryParams}`);
+  }
+  
+  async getInvoices(params?: {
+    limit?: number;
+    offset?: number;
+    startAfterId?: string;
+    contactId?: string;
+    status?: 'draft' | 'sent' | 'paid' | 'void';
+  }) {
+    const queryParams = new URLSearchParams({
+      altId: this.locationId,
+      altType: 'location',
+      limit: String(params?.limit || 100),
+      offset: String(params?.offset || 0),
+      ...(params?.contactId && { contactId: params.contactId }),
+      ...(params?.status && { status: params.status })
+    });
+
+    return this.makeRequest(`${GHL_ENDPOINTS.payments.invoices}?${queryParams}`);
+  }
+  
+  async getInvoice(invoiceId: string) {
+    return this.makeRequest(GHL_ENDPOINTS.payments.invoice(invoiceId));
+  }
+  
+  async getEstimates(params?: {
+    limit?: number;
+    offset?: number;
+    startAt?: string;
+    endAt?: string;
+    search?: string;
+    contactId?: string;
+    status?: 'all' | 'draft' | 'sent' | 'accepted' | 'declined' | 'invoiced' | 'viewed';
+  }) {
+    // Build query params according to GHL documentation
+    const queryParams = new URLSearchParams();
+    
+    // Required parameters
+    queryParams.append('altId', this.locationId);
+    queryParams.append('altType', 'location');
+    queryParams.append('limit', String(params?.limit || 100));
+    queryParams.append('offset', String(params?.offset || 0));
+    
+    // Optional parameters
+    if (params?.contactId) queryParams.append('contactId', params.contactId);
+    if (params?.status && params.status !== 'all') queryParams.append('status', params.status);
+    if (params?.startAt) queryParams.append('startAt', params.startAt);
+    if (params?.endAt) queryParams.append('endAt', params.endAt);
+    if (params?.search) queryParams.append('search', params.search);
+
+    // Estimates require PIT token, use makeRequestWithPIT if available
+    if (this.mcpEnabled && this.mcpClient) {
+      return this.makeRequestWithPIT(`${GHL_ENDPOINTS.estimates.list}?${queryParams}`);
+    }
+    
+    return this.makeRequest(`${GHL_ENDPOINTS.estimates.list}?${queryParams}`);
+  }
+  
+  async getEstimate(estimateId: string) {
+    return this.makeRequest(GHL_ENDPOINTS.estimates.get(estimateId));
+  }
 }
 
 // Helper function to create a GHL client from encrypted tokens
 export async function createGHLClient(
   encryptedTokens: string,
-  onTokenRefresh?: (tokens: GHLTokens) => Promise<void>
+  onTokenRefresh?: (tokens: GHLTokens) => Promise<void>,
+  mcpToken?: string
 ): Promise<GHLClient> {
   const decryptedData = decrypt(encryptedTokens);
   const tokens: GHLTokens = JSON.parse(decryptedData);
-  return new GHLClient(tokens, onTokenRefresh);
+  const client = new GHLClient(tokens, onTokenRefresh);
+  
+  // Try to initialize MCP if token is provided
+  if (mcpToken) {
+    await client.initializeMCP(mcpToken);
+  }
+  
+  return client;
 }

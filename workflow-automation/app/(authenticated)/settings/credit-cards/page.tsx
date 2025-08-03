@@ -28,6 +28,7 @@ export default function CreditCardsPage() {
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingCard, setEditingCard] = useState<string | null>(null);
+  const [deletingCard, setDeletingCard] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -35,7 +36,7 @@ export default function CreditCardsPage() {
     cardName: '',
     lastFourDigits: '',
     cardType: 'Visa',
-    isReimbursable: true,
+    isReimbursable: false,
     notes: ''
   });
 
@@ -49,6 +50,7 @@ export default function CreditCardsPage() {
       const data = await response.json();
       
       if (response.ok) {
+        console.log('Fetched cards:', data.cards);
         setCards(data.cards || []);
       } else {
         setError(data.error || 'Failed to fetch credit cards');
@@ -107,22 +109,34 @@ export default function CreditCardsPage() {
       return;
     }
 
+    setError(null);
+    setSuccess(null);
+    setDeletingCard(cardId);
+
     try {
       const response = await fetch(`/api/company-credit-cards?id=${cardId}`, {
         method: 'DELETE'
       });
 
       if (response.ok) {
-        await fetchCards();
+        // Immediately remove the card from local state for instant feedback
+        setCards(prev => prev.filter(card => card.id !== cardId));
         setSuccess('Credit card deleted successfully');
         setTimeout(() => setSuccess(null), 3000);
+        
+        // Then refresh from server to ensure consistency
+        await fetchCards();
       } else {
         const data = await response.json();
         setError(data.error || 'Failed to delete credit card');
+        setTimeout(() => setError(null), 5000);
       }
     } catch (error) {
       setError('Failed to delete credit card');
       console.error('Error deleting card:', error);
+      setTimeout(() => setError(null), 5000);
+    } finally {
+      setDeletingCard(null);
     }
   };
 
@@ -131,7 +145,7 @@ export default function CreditCardsPage() {
       cardName: card.cardName,
       lastFourDigits: card.lastFourDigits,
       cardType: card.cardType,
-      isReimbursable: card.isReimbursable,
+      isReimbursable: false, // Always false for company cards
       notes: card.notes || ''
     });
     setEditingCard(card.id);
@@ -143,7 +157,7 @@ export default function CreditCardsPage() {
       cardName: '',
       lastFourDigits: '',
       cardType: 'Visa',
-      isReimbursable: true,
+      isReimbursable: false,
       notes: ''
     });
     setEditingCard(null);
@@ -191,7 +205,7 @@ export default function CreditCardsPage() {
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900">Company Credit Cards</h1>
         <p className="text-gray-600 mt-2">
-          Manage company credit cards to automatically determine reimbursable expenses
+          Manage company credit cards. Expenses on these cards are automatically marked as company expenses (not reimbursable).
         </p>
       </div>
 
@@ -282,18 +296,6 @@ export default function CreditCardsPage() {
                 </select>
               </div>
               
-              <div className="flex items-center space-x-2 pt-6">
-                <input
-                  type="checkbox"
-                  id="isReimbursable"
-                  checked={formData.isReimbursable}
-                  onChange={(e) => setFormData({ ...formData, isReimbursable: e.target.checked })}
-                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-                <label htmlFor="isReimbursable" className="text-sm font-medium text-gray-700">
-                  Expenses are reimbursable
-                </label>
-              </div>
             </div>
             
             <div>
@@ -360,14 +362,12 @@ export default function CreditCardsPage() {
                       <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getCardColor(card.cardType)}`}>
                         {card.cardType}
                       </span>
-                      {card.isReimbursable && (
-                        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                          Reimbursable
-                        </span>
-                      )}
+                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                        Company Card
+                      </span>
                     </div>
                     <p className="text-sm text-gray-600 font-mono">
-                      •••• •••• •••• {card.lastFourDigits}
+                      •••• {card.lastFourDigits || 'N/A'}
                     </p>
                     {card.notes && (
                       <p className="text-sm text-gray-600 mt-1">{card.notes}</p>
@@ -393,9 +393,14 @@ export default function CreditCardsPage() {
                   </button>
                   <button
                     onClick={() => handleDelete(card.id)}
-                    className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                    disabled={deletingCard === card.id}
+                    className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    <Trash2 className="w-4 h-4" />
+                    {deletingCard === card.id ? (
+                      <div className="w-4 h-4 border-2 border-red-300 border-t-red-600 rounded-full animate-spin" />
+                    ) : (
+                      <Trash2 className="w-4 h-4" />
+                    )}
                   </button>
                 </div>
               </div>
@@ -411,9 +416,8 @@ export default function CreditCardsPage() {
           <div>
             <h3 className="font-medium text-blue-900">How It Works</h3>
             <p className="text-blue-700 text-sm mt-1">
-              When receipts are submitted with credit card payments, the system automatically checks the last 4 digits 
-              against your company cards to determine if the expense is reimbursable. This helps streamline expense reporting 
-              and ensures accurate reimbursement tracking.
+              Company cards listed here are automatically treated as non-reimbursable expenses. Any other card numbers 
+              or cash/check payments will be marked as reimbursable to the employee.
             </p>
           </div>
         </div>

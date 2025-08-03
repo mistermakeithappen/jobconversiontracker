@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+import { requireAuth, getServiceSupabase } from '@/lib/auth/production-auth-server';
+import { getUserOrganization } from '@/lib/auth/organization-helper';
 
 interface PaymentAssignment {
   ghl_user_id: string;
@@ -23,10 +19,19 @@ interface PaymentAssignment {
 
 export async function GET(request: NextRequest) {
   try {
-    // Get all payment assignments with user info
+    const { userId } = await requireAuth(request);
+    const organization = await getUserOrganization(userId);
+    const supabase = getServiceSupabase();
+    
+    if (!organization) {
+      return NextResponse.json({ error: 'No organization found' }, { status: 404 });
+    }
+
+    // Get all payment assignments with user info for the organization
     const { data: assignments, error } = await supabase
       .from('user_payment_structures')
       .select('*')
+      .eq('organization_id', organization.organizationId)
       .eq('is_active', true)
       .order('created_at', { ascending: false });
 
@@ -44,6 +49,14 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const { userId } = await requireAuth(request);
+    const organization = await getUserOrganization(userId);
+    const supabase = getServiceSupabase();
+    
+    if (!organization) {
+      return NextResponse.json({ error: 'No organization found' }, { status: 404 });
+    }
+
     const body = await request.json();
     console.log('POST request body:', JSON.stringify(body, null, 2));
     
@@ -79,11 +92,12 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // Deactivate any existing active payment structures for this user
+    // Deactivate any existing active payment structures for this user in this organization
     console.log('Deactivating existing payment structures for user:', ghl_user_id);
     const { data: deactivateData, error: deactivateError } = await supabase
       .from('user_payment_structures')
       .update({ is_active: false, end_date: new Date().toISOString().split('T')[0] })
+      .eq('organization_id', organization.organizationId)
       .eq('user_id', ghl_user_id)
       .eq('is_active', true)
       .select();
@@ -102,6 +116,7 @@ export async function POST(request: NextRequest) {
     const { data: newStructure, error: createError } = await supabase
       .from('user_payment_structures')
       .insert({
+        organization_id: organization.organizationId,
         user_id: ghl_user_id,
         ghl_user_name,
         ghl_user_email,
@@ -114,7 +129,8 @@ export async function POST(request: NextRequest) {
         overtime_rate: overtime_rate || null,
         notes: notes || null,
         effective_date,
-        is_active: true
+        is_active: true,
+        created_by: userId
       })
       .select()
       .single();
@@ -144,6 +160,14 @@ export async function POST(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
+    const { userId } = await requireAuth(request);
+    const organization = await getUserOrganization(userId);
+    const supabase = getServiceSupabase();
+    
+    if (!organization) {
+      return NextResponse.json({ error: 'No organization found' }, { status: 404 });
+    }
+
     const body = await request.json();
     const {
       id,
@@ -180,6 +204,7 @@ export async function PUT(request: NextRequest) {
         updated_at: new Date().toISOString()
       })
       .eq('id', id)
+      .eq('organization_id', organization.organizationId)
       .select()
       .single();
 
@@ -205,6 +230,14 @@ export async function PUT(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    const { userId } = await requireAuth(request);
+    const organization = await getUserOrganization(userId);
+    const supabase = getServiceSupabase();
+    
+    if (!organization) {
+      return NextResponse.json({ error: 'No organization found' }, { status: 404 });
+    }
+
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
 
@@ -220,7 +253,8 @@ export async function DELETE(request: NextRequest) {
         end_date: new Date().toISOString().split('T')[0],
         updated_at: new Date().toISOString()
       })
-      .eq('id', id);
+      .eq('id', id)
+      .eq('organization_id', organization.organizationId);
 
     if (error) {
       console.error('Error deleting payment structure:', error);

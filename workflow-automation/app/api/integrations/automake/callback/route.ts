@@ -2,13 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { GHL_CONFIG } from '@/lib/integrations/gohighlevel/config';
 import { encrypt } from '@/lib/utils/encryption';
-import { mockAuthServer } from '@/lib/auth/mock-auth-server';
+import { getServiceSupabase } from '@/lib/auth/production-auth-server';
+import { getUserOrganization } from '@/lib/auth/organization-helper';
 import { parseJWT } from '@/lib/utils/jwt';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+// Use getServiceSupabase for consistency
+const supabase = getServiceSupabase();
 
 export async function GET(request: NextRequest) {
   try {
@@ -20,15 +19,16 @@ export async function GET(request: NextRequest) {
     if (error) {
       console.error('OAuth error:', error);
       return NextResponse.redirect(
-        new URL('/integrations/gohighlevel?error=auth_failed', request.url)
+        new URL('/ghl?error=auth_failed', request.url)
       );
     }
 
     if (!code) {
       return NextResponse.redirect(
-        new URL('/integrations/gohighlevel?error=no_code', request.url)
+        new URL('/ghl?error=no_code', request.url)
       );
     }
+
 
     // Exchange code for tokens
     const tokenResponse = await fetch(GHL_CONFIG.tokenUrl, {
@@ -46,42 +46,140 @@ export async function GET(request: NextRequest) {
     });
 
     if (!tokenResponse.ok) {
-      const errorData = await tokenResponse.json();
-      console.error('Token exchange failed:', errorData);
+      const errorText = await tokenResponse.text();
+      console.error('Token exchange failed:', {
+        status: tokenResponse.status,
+        statusText: tokenResponse.statusText,
+        body: errorText
+      });
+      
+      // Try to parse as JSON if possible
+      let errorData;
+      try {
+        errorData = JSON.parse(errorText);
+      } catch {
+        errorData = { error: errorText };
+      }
+      
       return NextResponse.redirect(
-        new URL('/integrations/gohighlevel?error=token_exchange_failed', request.url)
+        new URL(`/ghl?error=token_exchange_failed&status=${tokenResponse.status}`, request.url)
       );
     }
 
     const tokenData = await tokenResponse.json();
     
-    console.log('GHL Token Response:', tokenData);
+    // Try to decode the JWT to extract additional information
+    let decodedToken = null;
+    if (tokenData.access_token) {
+      // Check if it's a JWT (has 3 parts separated by dots)
+      if (tokenData.access_token.split('.').length === 3) {
+        decodedToken = parseJWT(tokenData.access_token);
+      }
+    }
     
-    // Decode the JWT to extract additional information
-    const decodedToken = parseJWT(tokenData.access_token);
-    console.log('Decoded JWT:', decodedToken);
+    // Decode state to get user ID (since this is a callback from external service)
+    let userId: string;
+    try {
+      if (state) {
+        const decodedState = JSON.parse(Buffer.from(state, 'base64').toString());
+        userId = decodedState.userId;
+      } else {
+        throw new Error('No state parameter in callback');
+      }
+    } catch (error) {
+      console.error('Failed to decode state:', error);
+      return NextResponse.redirect(
+        new URL('/ghl?error=invalid_state', request.url)
+      );
+    }
     
-    // Get user ID from our auth system
-    const { userId } = mockAuthServer();
+    // Get organization for the user
+    console.log('Looking up organization for user:', userId);
+    let organization = await getUserOrganization(userId);
+    
+    if (!organization) {
+      console.error('No organization found for user:', userId);
+      
+      // For now, let's create a default organization for the user
+      // In production, this should be handled properly during user signup
+      const supabase = getServiceSupabase();
+      
+      // Check if user exists
+      const { data: user } = await supabase
+        .from('users')
+        .select('id, email')
+        .eq('id', userId)
+        .single();
+      
+      if (!user) {
+        console.error('User not found in database:', userId);
+        return NextResponse.redirect(
+          new URL('/ghl?error=user_not_found', request.url)
+        );
+      }
+      
+      // Create organization for the user
+      const { data: newOrg, error: orgError } = await supabase
+        .from('organizations')
+        .insert({
+          name: `${user.email}'s Organization`,
+          slug: `org-${userId.substring(0, 8)}`,
+          subscription_status: 'active',
+          subscription_plan: 'free'
+        })
+        .select()
+        .single();
+      
+      if (orgError || !newOrg) {
+        console.error('Failed to create organization:', orgError);
+        return NextResponse.redirect(
+          new URL('/ghl?error=org_creation_failed', request.url)
+        );
+      }
+      
+      // Add user as owner of the organization
+      const { error: memberError } = await supabase
+        .from('organization_members')
+        .insert({
+          organization_id: newOrg.id,
+          user_id: userId,
+          role: 'owner',
+          permissions: []
+        });
+      
+      if (memberError) {
+        console.error('Failed to add user to organization:', memberError);
+        return NextResponse.redirect(
+          new URL('/ghl?error=member_creation_failed', request.url)
+        );
+      }
+      
+      // Use the newly created organization
+      organization = {
+        organizationId: newOrg.id,
+        role: 'owner',
+        permissions: []
+      };
+    }
 
     // Prepare token data for storage
     // Try to get locationId from various sources
     const locationId = tokenData.locationId || 
                       tokenData.location_id || 
-                      decodedToken?.location_id ||
-                      decodedToken?.locationId ||
+                      (decodedToken && decodedToken.location_id) ||
+                      (decodedToken && decodedToken.locationId) ||
                       '';
     
     const companyId = tokenData.companyId || 
                      tokenData.company_id || 
-                     decodedToken?.company_id ||
-                     decodedToken?.companyId ||
+                     (decodedToken && decodedToken.company_id) ||
+                     (decodedToken && decodedToken.companyId) ||
                      '';
     
     const userType = tokenData.userType || 
                     tokenData.user_type || 
-                    decodedToken?.user_type ||
-                    decodedToken?.userType ||
+                    (decodedToken && decodedToken.user_type) ||
+                    (decodedToken && decodedToken.userType) ||
                     '';
     
     const tokens = {
@@ -93,58 +191,212 @@ export async function GET(request: NextRequest) {
       userId: tokenData.userId || tokenData.user_id || ''
     };
     
-    console.log('Extracted location ID:', locationId);
 
     // Encrypt tokens before storing
     const encryptedTokens = encrypt(JSON.stringify(tokens));
 
-    // Store integration data
+    // Store integration data with all important fields
     const integrationData = {
-      user_id: userId,
-      type: 'gohighlevel',
+      organization_id: organization.organizationId,
+      type: 'gohighlevel', // Using type field
       name: 'GoHighLevel',
+      created_by: userId,
       config: {
+        // Token data
         encryptedTokens,
-        locationId: locationId,
-        companyId: companyId,
-        scope: tokenData.scope,
-        tokenType: tokenData.token_type,
-        userType: userType,
-        connectedAt: new Date().toISOString()
+        
+        // Core IDs
+        locationId: locationId || '',
+        companyId: companyId || '',
+        userId: tokenData.userId || tokenData.user_id || (decodedToken && decodedToken.userId) || '',
+        
+        // User information
+        userType: userType || '',
+        email: (decodedToken && decodedToken.email) || '',
+        
+        // OAuth details
+        scope: tokenData.scope || '',
+        tokenType: tokenData.token_type || 'Bearer',
+        
+        // Additional metadata from JWT
+        iss: (decodedToken && decodedToken.iss) || '', // Issuer
+        aud: (decodedToken && decodedToken.aud) || '', // Audience
+        sub: (decodedToken && decodedToken.sub) || '', // Subject (often user ID)
+        
+        // Timestamps
+        connectedAt: new Date().toISOString(),
+        lastTokenRefresh: new Date().toISOString(),
+        tokenExpiresAt: new Date(Date.now() + (tokenData.expires_in * 1000)).toISOString(),
+        
+        // Integration metadata
+        integrationId: (decodedToken && decodedToken.integrationId) || '',
+        marketplaceAppId: (decodedToken && decodedToken.marketplaceAppId) || '',
+        
+        // Permissions and features
+        permissions: (decodedToken && decodedToken.permissions) || [],
+        features: (decodedToken && decodedToken.features) || [],
+        
+        // Location details (will be fetched later)
+        locationName: '',
+        locationTimezone: '',
+        locationAddress: {},
+        
+        // Company details (will be fetched later)
+        companyName: '',
+        
+        // User details (will be fetched later)
+        userName: '',
+        userRole: ''
       },
       is_active: true
     };
 
-    // Check if integration already exists
+    // Check if integration already exists for this organization
     const { data: existing } = await supabase
       .from('integrations')
       .select('id')
-      .eq('user_id', userId)
+      .eq('organization_id', organization.organizationId)
       .eq('type', 'gohighlevel')
       .single();
 
+    let integrationId: string;
+    
     if (existing) {
       // Update existing integration
-      await supabase
+      // Clear any reconnection flags from the config
+      const updatedConfig = {
+        ...integrationData.config,
+        needsReconnection: false,
+        reconnectionReason: null,
+        lastRefreshError: null
+      };
+      
+      const { error } = await supabase
         .from('integrations')
-        .update(integrationData)
-        .eq('id', existing.id);
+        .update({
+          config: updatedConfig,
+          is_active: true,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', existing.id)
+        .eq('organization_id', organization.organizationId);
+        
+      if (error) {
+        console.error('Error updating integration:', error);
+        throw error;
+      }
+      integrationId = existing.id;
     } else {
       // Create new integration
-      await supabase
+      const { data: newIntegration, error } = await supabase
         .from('integrations')
-        .insert(integrationData);
+        .insert({
+          ...integrationData,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .select('id')
+        .single();
+        
+      if (error) {
+        console.error('Error creating integration:', error);
+        throw error;
+      }
+      integrationId = newIntegration?.id;
     }
 
-    // Redirect back to integrations page with success
+    // Automatically analyze pipeline stages and fetch additional details after successful connection
+    if (integrationId) {
+      try {
+        // If we don't have a locationId, try to get it from the locations endpoint
+        let finalLocationId = locationId;
+        
+        if (!finalLocationId) {
+          try {
+            // Create a temporary client to fetch locations
+            const { decrypt } = await import('@/lib/utils/encryption');
+            const tempTokens = JSON.parse(decrypt(encryptedTokens));
+            
+            const locationsResponse = await fetch('https://services.leadconnectorhq.com/locations/search', {
+              headers: {
+                'Authorization': `Bearer ${tempTokens.accessToken}`,
+                'Version': '2021-07-28',
+                'Accept': 'application/json'
+              }
+            });
+            
+            if (locationsResponse.ok) {
+              const locationsData = await locationsResponse.json();
+              
+              if (locationsData.locations && locationsData.locations.length > 0) {
+                finalLocationId = locationsData.locations[0].id;
+                
+                // Update the integration with the location ID
+                await supabase
+                  .from('integrations')
+                  .update({
+                    config: {
+                      ...integrationData.config,
+                      locationId: finalLocationId
+                    }
+                  })
+                  .eq('id', integrationId);
+              }
+            }
+          } catch (locError) {
+            console.error('Error fetching locations:', locError);
+          }
+        }
+        
+        // Trigger pipeline analysis in the background
+        fetch(new URL('/api/pipelines/analyze-on-connect', request.url).toString(), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            integrationId,
+            userId 
+          })
+        }).catch(error => {
+          console.error('Background pipeline analysis failed:', error);
+        });
+        
+        // Fetch additional details in the background
+        const baseUrl = request.url.split('/api/')[0];
+        const fetchDetailsUrl = `${baseUrl}/api/integrations/automake/fetch-details`;
+        
+        fetch(fetchDetailsUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            integrationId,
+            userId,
+            locationId: finalLocationId,
+            companyId
+          })
+        }).catch(error => {
+          console.error('Background detail fetch failed:', error);
+        });
+      } catch (error) {
+        console.error('Error initiating background tasks:', error);
+        // Don't fail the OAuth callback for this
+      }
+    }
+
+    // Redirect back to GHL page with success
     return NextResponse.redirect(
-      new URL('/integrations/gohighlevel?success=true', request.url)
+      new URL('/ghl?success=true', request.url)
     );
 
   } catch (error) {
     console.error('OAuth callback error:', error);
+    console.error('Error details:', error instanceof Error ? error.stack : 'Unknown error');
+    
+    // Try to provide more specific error information
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorParam = encodeURIComponent(errorMessage.substring(0, 100)); // Limit error message length
+    
     return NextResponse.redirect(
-      new URL('/integrations/gohighlevel?error=unexpected_error', request.url)
+      new URL(`/ghl?error=unexpected_error&details=${errorParam}`, request.url)
     );
   }
 }

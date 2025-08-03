@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { mockAuthServer } from '@/lib/auth/mock-auth-server';
+import { requireAuth } from '@/lib/auth/production-auth-server';
 import ApiKeyManager from '@/lib/utils/api-key-manager';
 
 export async function PUT(
@@ -7,10 +7,7 @@ export async function PUT(
   { params }: { params: { keyId: string } }
 ) {
   try {
-    const auth = mockAuthServer();
-    if (!auth?.userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const { userId } = await requireAuth(request);
 
     const body = await request.json();
     const { apiKey, keyName, isActive } = body;
@@ -18,7 +15,7 @@ export async function PUT(
     // Validate new API key if provided
     if (apiKey) {
       // Get the provider for this key
-      const existingKeys = await ApiKeyManager.listUserApiKeys(auth.userId);
+      const existingKeys = await ApiKeyManager.listUserApiKeys(userId);
       const existingKey = existingKeys.find(k => k.id === params.keyId);
       
       if (!existingKey) {
@@ -58,9 +55,23 @@ export async function DELETE(
   { params }: { params: { keyId: string } }
 ) {
   try {
-    const auth = mockAuthServer();
-    if (!auth?.userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const { userId } = await requireAuth(request);
+
+    // Handle GHL PIT deletion separately
+    if (params.keyId === 'ghl-pit-stored') {
+      const mcpResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/mcp/ghl`, {
+        method: 'DELETE',
+        headers: {
+          'Cookie': request.headers.get('cookie') || ''
+        }
+      });
+
+      if (!mcpResponse.ok) {
+        const mcpError = await mcpResponse.json();
+        throw new Error(mcpError.error || 'Failed to delete GoHighLevel Private Integration Token');
+      }
+
+      return NextResponse.json({ success: true });
     }
 
     await ApiKeyManager.deleteApiKey(params.keyId);

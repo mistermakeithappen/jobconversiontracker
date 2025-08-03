@@ -1,6 +1,6 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { mockAuthServer } from '@/lib/auth/mock-auth-server';
+import { requireAuth } from '@/lib/auth/production-auth-server';
 import { createGHLClient } from '@/lib/integrations/gohighlevel/client';
 import { encrypt } from '@/lib/utils/encryption';
 
@@ -9,9 +9,9 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const { userId } = mockAuthServer();
+    const { userId } = await requireAuth(request);
     
     // Get user's GHL integration
     const { data: integration, error } = await supabase
@@ -21,13 +21,13 @@ export async function GET() {
       .eq('type', 'gohighlevel')
       .single();
     
-    if (error || !integration || !integration.config.encryptedTokens) {
+    if (error || !integration || !integration.config?.encryptedTokens) {
       return NextResponse.json({ error: 'GoHighLevel not connected' }, { status: 400 });
     }
     
     // Create GHL client without locationId first
     const ghlClient = await createGHLClient(
-      integration.config.encryptedTokens,
+      integration.config?.encryptedTokens || '',
       async (newTokens) => {
         const encryptedTokens = encrypt(JSON.stringify(newTokens));
         await supabase
@@ -72,9 +72,9 @@ export async function GET() {
       }
       
       // If still no locations but we have a company ID, try company locations
-      if (locations.length === 0 && integration.config.companyId) {
+      if (locations.length === 0 && integration.config?.companyId) {
         try {
-          const companyResponse = await fetch(`https://services.leadconnectorhq.com/companies/${integration.config.companyId}/locations`, {
+          const companyResponse = await fetch(`https://services.leadconnectorhq.com/companies/${integration.config?.companyId}/locations`, {
             headers: {
               'Authorization': `Bearer ${(ghlClient as any).accessToken}`,
               'Version': '2021-07-28',
@@ -92,7 +92,7 @@ export async function GET() {
       }
       
       // If we got locations, update the integration with the first location ID
-      if (locations.length > 0 && !integration.config.locationId) {
+      if (locations.length > 0 && !integration.config?.locationId) {
         const firstLocation = locations[0];
         const firstLocationId = firstLocation.id || firstLocation._id || firstLocation.locationId;
         

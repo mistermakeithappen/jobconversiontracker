@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { mockAuthServer } from '@/lib/auth/mock-auth-server';
+import { requireAuth } from '@/lib/auth/production-auth-server';
 import { createGHLClient } from '@/lib/integrations/gohighlevel/client';
 import { encrypt } from '@/lib/utils/encryption';
 
@@ -11,7 +11,7 @@ const supabase = createClient(
 
 export async function POST(request: NextRequest) {
   try {
-    const { userId } = mockAuthServer();
+    const { userId } = await requireAuth(request);
     const { integrationId } = await request.json();
     
     // Get user's GHL integration
@@ -214,7 +214,7 @@ export async function POST(request: NextRequest) {
 // GET endpoint to check sync status
 export async function GET(request: NextRequest) {
   try {
-    const { userId } = mockAuthServer();
+    const { userId } = await requireAuth(request);
     const searchParams = request.nextUrl.searchParams;
     const integrationId = searchParams.get('integrationId');
     

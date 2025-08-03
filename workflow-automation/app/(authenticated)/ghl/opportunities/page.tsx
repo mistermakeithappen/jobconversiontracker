@@ -1,8 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { DollarSign, RefreshCw, CheckCircle, Plus } from 'lucide-react';
 import { OpportunitiesPipelineView } from '@/components/ghl/opportunities-pipeline-view';
+import { getSupabaseClient } from '@/lib/auth/client';
 
 interface GHLOpportunity {
   id: string;
@@ -17,6 +19,8 @@ interface GHLOpportunity {
   profitMargin: number;
   createdAt: string;
   updatedAt: string;
+  assignedTo?: string;
+  assignedToName?: string;
 }
 
 interface GHLPipeline {
@@ -30,13 +34,15 @@ interface GHLPipeline {
 }
 
 export default function GHLOpportunitiesPage() {
+  const searchParams = useSearchParams();
   const [opportunities, setOpportunities] = useState<GHLOpportunity[]>([]);
   const [pipelines, setPipelines] = useState<GHLPipeline[]>([]);
   const [loading, setLoading] = useState(false);
   const [connected, setConnected] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState<'checking' | 'connected' | 'disconnected'>('checking');
+  const [connectionStatus, setConnectionStatus] = useState<'checking' | 'connected' | 'disconnected' | 'needs-reconnection'>('checking');
   const [integrationId, setIntegrationId] = useState<string | null>(null);
-  const [isUsingRealData, setIsUsingRealData] = useState<boolean | null>(null);
+  const [openOpportunityId, setOpenOpportunityId] = useState<string | null>(null);
+  const [reconnectionReason, setReconnectionReason] = useState<string | null>(null);
   const [paginationInfo, setPaginationInfo] = useState<{
     requestCount?: number;
     totalFetched?: number;
@@ -49,16 +55,46 @@ export default function GHLOpportunitiesPage() {
 
   useEffect(() => {
     if (connected) {
+      // First load from database for fast display
       fetchOpportunities();
+      // Then sync with GHL in background
+      syncInBackground();
     }
   }, [connected]);
 
+  useEffect(() => {
+    // Check for openOpportunity query parameter
+    const opportunityId = searchParams.get('openOpportunity');
+    if (opportunityId && opportunities.length > 0) {
+      // Find the opportunity and set it to open
+      const opportunity = opportunities.find(opp => opp.id === opportunityId);
+      if (opportunity) {
+        setOpenOpportunityId(opportunityId);
+      }
+    }
+  }, [searchParams, opportunities]);
+
   const checkConnectionStatus = async () => {
     try {
-      const response = await fetch('/api/integrations/automake/status');
+      const supabase = getSupabaseClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      const response = await fetch('/api/integrations/automake/status', {
+        headers: {
+          'Authorization': `Bearer ${session?.access_token}`,
+        }
+      });
       const data = await response.json();
-      setConnected(data.connected);
-      setConnectionStatus(data.connected ? 'connected' : 'disconnected');
+      
+      if (data.needsReconnection) {
+        setConnectionStatus('needs-reconnection');
+        setReconnectionReason(data.reconnectionReason || 'Your GoHighLevel connection needs to be re-authorized.');
+        setConnected(false);
+      } else {
+        setConnected(data.connected);
+        setConnectionStatus(data.connected ? 'connected' : 'disconnected');
+      }
+      
       if (data.integrationId) {
         setIntegrationId(data.integrationId);
       }
@@ -68,16 +104,45 @@ export default function GHLOpportunitiesPage() {
     }
   };
 
+  const syncInBackground = async () => {
+    try {
+      const supabase = getSupabaseClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      // Sync with GHL in background without loading state
+      const syncResponse = await fetch('/api/integrations/automake/sync', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session?.access_token}`,
+        }
+      });
+      
+      if (syncResponse.ok) {
+        // Refresh opportunities after sync completes
+        await fetchOpportunities();
+      }
+    } catch (error) {
+      console.error('Error syncing opportunities in background:', error);
+    }
+  };
+
   const fetchOpportunities = async () => {
     setLoading(true);
     try {
-      const response = await fetch('/api/integrations/automake/opportunities');
+      const supabase = getSupabaseClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      // Add fromCache parameter to load from database first
+      const response = await fetch('/api/integrations/automake/opportunities?fromCache=true', {
+        headers: {
+          'Authorization': `Bearer ${session?.access_token}`,
+        }
+      });
       const data = await response.json();
       
       if (response.ok) {
         setOpportunities(data.opportunities || []);
         setPipelines(data.pipelines || []);
-        setIsUsingRealData(data.isRealData || false);
         
         // Set pagination info if available
         if (data.requestCount || data.totalFetched) {
@@ -90,11 +155,16 @@ export default function GHLOpportunitiesPage() {
         
         console.log('Opportunities fetched:', {
           count: data.opportunities?.length || 0,
-          isRealData: data.isRealData,
           pipelines: data.pipelines?.length || 0,
           requestCount: data.requestCount,
-          totalFetched: data.totalFetched
+          totalFetched: data.totalFetched,
+          fromCache: data.fromCache
         });
+        
+        // Debug: Log first opportunity to see data structure
+        if (data.opportunities && data.opportunities.length > 0) {
+          console.log('First opportunity data:', data.opportunities[0]);
+        }
       } else {
         console.error('Error fetching opportunities:', data.error);
       }
@@ -108,12 +178,37 @@ export default function GHLOpportunitiesPage() {
   const syncData = async () => {
     setLoading(true);
     try {
+      const supabase = getSupabaseClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      
       const response = await fetch('/api/integrations/automake/sync', {
-        method: 'POST'
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session?.access_token}`,
+        }
       });
       
       if (response.ok) {
-        await fetchOpportunities();
+        // When syncing, fetch fresh data from GHL, not cache
+        const freshResponse = await fetch('/api/integrations/automake/opportunities', {
+          headers: {
+            'Authorization': `Bearer ${session?.access_token}`,
+          }
+        });
+        const data = await freshResponse.json();
+        
+        if (freshResponse.ok) {
+          setOpportunities(data.opportunities || []);
+          setPipelines(data.pipelines || []);
+            
+          if (data.requestCount || data.totalFetched) {
+            setPaginationInfo({
+              requestCount: data.requestCount,
+              totalFetched: data.totalFetched,
+              maxResultsReached: data.maxResultsReached
+            });
+          }
+        }
         alert('Opportunities synced successfully!');
       } else {
         alert('Failed to sync opportunities');
@@ -128,7 +223,14 @@ export default function GHLOpportunitiesPage() {
 
   const handleConnect = async () => {
     try {
-      const response = await fetch('/api/integrations/automake/connect');
+      const supabase = getSupabaseClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      const response = await fetch('/api/integrations/automake/connect', {
+        headers: {
+          'Authorization': `Bearer ${session?.access_token}`,
+        }
+      });
       const data = await response.json();
 
       if (response.ok && data.authUrl) {
@@ -170,6 +272,34 @@ export default function GHLOpportunitiesPage() {
     );
   }
 
+  if (connectionStatus === 'needs-reconnection') {
+    return (
+      <div className="bg-white rounded-xl border border-gray-200 p-12">
+        <div className="max-w-md mx-auto text-center">
+          <div className="w-16 h-16 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <svg className="w-8 h-8 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+          </div>
+          <h3 className="text-xl font-semibold text-gray-900 mb-2">GoHighLevel Reconnection Required</h3>
+          <p className="text-gray-600 mb-6">
+            {reconnectionReason}
+          </p>
+          <button
+            onClick={handleConnect}
+            className="inline-flex items-center space-x-2 px-6 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors"
+          >
+            <RefreshCw className="w-5 h-5" />
+            <span>Reconnect to GoHighLevel</span>
+          </button>
+          <p className="text-sm text-gray-500 mt-4">
+            You will be redirected to GoHighLevel to re-authorize the connection
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -194,51 +324,6 @@ export default function GHLOpportunitiesPage() {
         </div>
       </div>
 
-      {/* Data Source Status */}
-      {isUsingRealData === true ? (
-        <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-          <div className="flex items-start space-x-3">
-            <CheckCircle className="w-5 h-5 text-green-600 mt-0.5" />
-            <div>
-              <h4 className="text-sm font-medium text-green-800">Real Data Connected</h4>
-              <p className="text-sm text-green-700 mt-1">
-                Successfully connected to GoHighLevel opportunities API. 
-                Showing live data from your subaccount ({opportunities.length} opportunities found
-                {paginationInfo?.requestCount && ` via ${paginationInfo.requestCount} API requests`}).
-                Pipeline stages are displayed in the same order as configured in GoHighLevel.
-                {paginationInfo?.maxResultsReached && (
-                  <span className="font-medium"> Note: Reached maximum limit of 5,000 opportunities.</span>
-                )}
-              </p>
-            </div>
-          </div>
-        </div>
-      ) : isUsingRealData === false ? (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-          <div className="flex items-start space-x-3">
-            <div className="w-5 h-5 text-yellow-600 mt-0.5">⚠️</div>
-            <div>
-              <h4 className="text-sm font-medium text-yellow-800">Using Sample Data</h4>
-              <p className="text-sm text-yellow-700 mt-1">
-                GoHighLevel opportunities API may not be accessible. 
-                Showing sample data based on your pipelines. Click &quot;Sync Data&quot; to retry fetching real opportunities.
-              </p>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <div className="flex items-start space-x-3">
-            <RefreshCw className="w-5 h-5 text-blue-600 mt-0.5 animate-spin" />
-            <div>
-              <h4 className="text-sm font-medium text-blue-800">Checking Data Source</h4>
-              <p className="text-sm text-blue-700 mt-1">
-                Determining whether to use real GoHighLevel data or sample data...
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
       
       {/* Pipeline View */}
       {integrationId && (
@@ -247,6 +332,8 @@ export default function GHLOpportunitiesPage() {
           pipelines={pipelines}
           integrationId={integrationId}
           onRefresh={fetchOpportunities}
+          openOpportunityId={openOpportunityId}
+          onOpportunityOpened={() => setOpenOpportunityId(null)}
         />
       )}
     </div>

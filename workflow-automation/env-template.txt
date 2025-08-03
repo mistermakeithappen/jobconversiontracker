@@ -12,10 +12,6 @@ SUPABASE_SERVICE_ROLE_KEY_LOCAL=your-local-service-role-key-here
 # OpenAI (for AI features)
 OPENAI_API_KEY=your-openai-api-key-here
 
-# Clerk Authentication (if using)
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=your-clerk-publishable-key-here
-CLERK_SECRET_KEY=your-clerk-secret-key-here
-CLERK_WEBHOOK_SECRET=your-clerk-webhook-secret-here
 
 # Stripe (for payments)
 NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=your-stripe-publishable-key-here

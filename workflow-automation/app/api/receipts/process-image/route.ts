@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import { mockAuthServer } from '@/lib/auth/mock-auth-server';
+import { getServiceSupabase } from '@/lib/auth/production-auth-server';
 import ApiKeyManager from '@/lib/utils/api-key-manager';
 import OpenAI from 'openai';
 import { FileConverter } from '@/lib/utils/file-converter';
@@ -8,10 +7,7 @@ import { findMatchingJobs, findCompletedJobMatches, type ReceiptData, type JobMa
 
 // Types are now imported from the shared service
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+const supabase = getServiceSupabase();
 
 export async function POST(request: NextRequest) {
   console.log('=== Receipt Processing API Called ===');

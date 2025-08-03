@@ -14,9 +14,8 @@ const supabase = createClient(
 
 export interface UserApiKey {
   id: string;
-  userId: string;
-  provider: 'openai' | 'anthropic' | 'google' | 'azure' | 'notion';
-  keyName?: string;
+  organizationId: string;
+  service: 'openai' | 'anthropic' | 'google' | 'azure' | 'notion';
   createdAt: string;
   updatedAt: string;
   lastUsedAt?: string;
@@ -24,26 +23,39 @@ export interface UserApiKey {
 }
 
 export interface CreateApiKeyRequest {
-  userId: string;
-  provider: 'openai' | 'anthropic' | 'google' | 'azure' | 'notion';
+  organizationId: string;
+  service: 'openai' | 'anthropic' | 'google' | 'azure' | 'notion';
   apiKey: string;
-  keyName?: string;
 }
 
 export class ApiKeyManager {
   
   /**
-   * Store a new API key for a user
+   * Store a new API key for an organization
    */
   static async storeApiKey(request: CreateApiKeyRequest): Promise<UserApiKey> {
     try {
-      console.log('Storing API key for user:', request.userId, 'provider:', request.provider);
+      // Validate request object
+      if (!request) {
+        throw new Error('Request object is required');
+      }
+      if (!request.organizationId) {
+        throw new Error('Organization ID is required');
+      }
+      if (!request.service) {
+        throw new Error('Service is required');
+      }
+      if (!request.apiKey) {
+        throw new Error('API key is required');
+      }
+      
+      console.log('Storing API key for organization:', request.organizationId, 'service:', request.service);
       
       // Validate the API key first (allow network errors to pass through)
-      const isValid = await this.validateApiKey(request.provider, request.apiKey);
+      const isValid = await this.validateApiKey(request.service, request.apiKey);
       if (!isValid) {
-        console.log('API key validation failed for provider:', request.provider);
-        throw new Error(`Invalid ${request.provider.toUpperCase()} API key format or authentication failed`);
+        console.log('API key validation failed for service:', request.service);
+        throw new Error(`Invalid ${request.service.toUpperCase()} API key format or authentication failed`);
       }
       
       // Encrypt the API key
@@ -58,20 +70,15 @@ export class ApiKeyManager {
       }
       
       const insertData = {
-        user_id: request.userId,
-        provider: request.provider,
+        organization_id: request.organizationId,
+        service: request.service,
         encrypted_key: encryptedKey,
-        key_name: request.keyName,
         is_active: true
       };
       
       console.log('Inserting into database:', { ...insertData, encrypted_key: '[ENCRYPTED]' });
       
-      // Use service role to bypass RLS for development
-      console.log('Creating Supabase client with service role...');
-      console.log('SUPABASE_URL:', process.env.NEXT_PUBLIC_SUPABASE_URL);
-      console.log('SERVICE_ROLE_KEY exists:', !!process.env.SUPABASE_SERVICE_ROLE_KEY);
-      
+      // Use service role to bypass RLS
       const client = createClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.SUPABASE_SERVICE_ROLE_KEY!,
@@ -88,7 +95,7 @@ export class ApiKeyManager {
       const { data, error } = await client
         .from('user_api_keys')
         .insert(insertData)
-        .select('id, user_id, provider, key_name, created_at, updated_at, last_used_at, is_active')
+        .select('id, organization_id, service, created_at, updated_at, last_used_at, is_active')
         .single();
 
       if (error) {
@@ -103,9 +110,8 @@ export class ApiKeyManager {
       
       return {
         id: data.id,
-        userId: data.user_id,
-        provider: data.provider,
-        keyName: data.key_name,
+        organizationId: data.organization_id,
+        service: data.service,
         createdAt: data.created_at,
         updatedAt: data.updated_at,
         lastUsedAt: data.last_used_at,
@@ -118,20 +124,16 @@ export class ApiKeyManager {
   }
 
   /**
-   * Retrieve and decrypt an API key for a user
+   * Retrieve and decrypt an API key for an organization
    */
-  static async getApiKey(userId: string, provider: string, keyName?: string): Promise<string | null> {
+  static async getApiKey(organizationId: string, service: string): Promise<string | null> {
     try {
-      let query = supabase
+      const query = supabase
         .from('user_api_keys')
         .select('id, encrypted_key')
-        .eq('user_id', userId)
-        .eq('provider', provider)
+        .eq('organization_id', organizationId)
+        .eq('service', service)
         .eq('is_active', true);
-
-      if (keyName) {
-        query = query.eq('key_name', keyName);
-      }
 
       const { data, error } = await query
         .order('created_at', { ascending: false })
@@ -160,13 +162,13 @@ export class ApiKeyManager {
   }
 
   /**
-   * List all API keys for a user (without decrypting them)
+   * List all API keys for an organization (without decrypting them)
    */
-  static async listUserApiKeys(userId: string): Promise<UserApiKey[]> {
+  static async listUserApiKeys(organizationId: string): Promise<UserApiKey[]> {
     try {
-      console.log('Listing API keys for user:', userId);
+      console.log('Listing API keys for organization:', organizationId);
       
-      // Use service role to bypass RLS for development
+      // Use service role to bypass RLS
       const client = createClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.SUPABASE_SERVICE_ROLE_KEY!,
@@ -180,8 +182,8 @@ export class ApiKeyManager {
       
       const { data, error } = await client
         .from('user_api_keys')
-        .select('id, user_id, provider, key_name, created_at, updated_at, last_used_at, is_active')
-        .eq('user_id', userId)
+        .select('id, organization_id, service, created_at, updated_at, last_used_at, is_active')
+        .eq('organization_id', organizationId)
         .order('created_at', { ascending: false });
 
       if (error) {
@@ -193,9 +195,8 @@ export class ApiKeyManager {
       
       return (data || []).map(row => ({
         id: row.id,
-        userId: row.user_id,
-        provider: row.provider,
-        keyName: row.key_name,
+        organizationId: row.organization_id,
+        service: row.service,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
         lastUsedAt: row.last_used_at,
@@ -212,7 +213,6 @@ export class ApiKeyManager {
    */
   static async updateApiKey(keyId: string, updates: {
     apiKey?: string;
-    keyName?: string;
     isActive?: boolean;
   }): Promise<UserApiKey> {
     try {
@@ -220,9 +220,6 @@ export class ApiKeyManager {
 
       if (updates.apiKey) {
         updateData.encrypted_key = encrypt(updates.apiKey);
-      }
-      if (updates.keyName !== undefined) {
-        updateData.key_name = updates.keyName;
       }
       if (updates.isActive !== undefined) {
         updateData.is_active = updates.isActive;
@@ -232,7 +229,7 @@ export class ApiKeyManager {
         .from('user_api_keys')
         .update(updateData)
         .eq('id', keyId)
-        .select('id, user_id, provider, key_name, created_at, updated_at, last_used_at, is_active')
+        .select('id, organization_id, service, created_at, updated_at, last_used_at, is_active')
         .single();
 
       if (error) {
@@ -241,9 +238,8 @@ export class ApiKeyManager {
 
       return {
         id: data.id,
-        userId: data.user_id,
-        provider: data.provider,
-        keyName: data.key_name,
+        organizationId: data.organization_id,
+        service: data.service,
         createdAt: data.created_at,
         updatedAt: data.updated_at,
         lastUsedAt: data.last_used_at,
@@ -279,7 +275,6 @@ export class ApiKeyManager {
    */
   private static async markKeyAsUsed(keyId: string): Promise<void> {
     try {
-      // Fallback to direct update if RPC function doesn't exist
       const { error } = await supabase
         .from('user_api_keys')
         .update({ last_used_at: new Date().toISOString() })
@@ -360,10 +355,19 @@ export class ApiKeyManager {
   }
 
   /**
-   * Validate an API key based on provider
+   * Validate an API key based on service
    */
-  static async validateApiKey(provider: string, apiKey: string): Promise<boolean> {
-    switch (provider) {
+  static async validateApiKey(service: string, apiKey: string): Promise<boolean> {
+    if (!service) {
+      console.error('validateApiKey called with undefined service');
+      return false;
+    }
+    if (!apiKey) {
+      console.error('validateApiKey called with undefined apiKey');
+      return false;
+    }
+    
+    switch (service) {
       case 'openai':
         return this.validateOpenAIKey(apiKey);
       case 'notion':
@@ -374,6 +378,7 @@ export class ApiKeyManager {
         // For now, just check format - add proper validation later
         return apiKey.length > 10;
       default:
+        console.log('Unknown service type:', service);
         return false;
     }
   }

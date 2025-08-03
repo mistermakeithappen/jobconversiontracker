@@ -5,11 +5,10 @@ import { FileConverter } from '@/lib/utils/file-converter';
 import { decrypt } from '@/lib/utils/encryption';
 import ApiKeyManager from '@/lib/utils/api-key-manager';
 import { findMatchingJobs, findCompletedJobMatches, type ReceiptData } from '@/lib/services/receipt-matching';
+import { getServiceSupabase } from '@/lib/auth/production-auth-server';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+// Use service role client for server-side operations
+const getSupabase = () => getServiceSupabase();
 
 interface ProcessFromMessageRequest {
   messageId: string;
@@ -18,6 +17,7 @@ interface ProcessFromMessageRequest {
   contactPhone: string;
   userId: string;
   integrationId: string;
+  organizationId: string;
 }
 
 export async function POST(request: NextRequest) {
@@ -28,7 +28,8 @@ export async function POST(request: NextRequest) {
       attachmentUrl,
       contactPhone,
       userId,
-      integrationId
+      integrationId,
+      organizationId
     }: ProcessFromMessageRequest = await request.json();
     
     console.log('Processing receipt from message:', {
@@ -38,23 +39,35 @@ export async function POST(request: NextRequest) {
       userId
     });
     
-    // Get user's OpenAI API key
-    const userApiKey = await ApiKeyManager.getApiKey(userId, 'openai');
-    if (!userApiKey) {
-      console.error('No OpenAI API key found for user:', userId);
+    const supabase = getSupabase();
+    
+    // Get the organization's OpenAI API key
+    const { data: apiKey } = await supabase
+      .from('user_api_keys')
+      .select('api_key')
+      .eq('organization_id', organizationId)
+      .eq('service', 'openai')
+      .eq('is_active', true)
+      .single();
+    
+    if (!apiKey?.api_key) {
+      console.error('No OpenAI API key found for organization:', organizationId);
       // Send a message explaining they need to add an API key
-      await sendApiKeyRequiredMessage(contactPhone, integrationId, userId);
+      await sendApiKeyRequiredMessage(contactPhone, integrationId, userId, organizationId);
       return NextResponse.json({ 
         error: 'OpenAI API key not configured',
         sentNotification: true
       }, { status: 400 });
     }
     
+    const userApiKey = apiKey.api_key;
+    
     // Create processing log entry
     const { data: processingLog, error: logError } = await supabase
       .from('receipt_processing_log')
       .insert({
-        user_id: userId,
+        organization_id: organizationId,
+        source: 'sms',
         phone_number: contactPhone,
         attachment_url: attachmentUrl,
         processing_status: 'processing',
@@ -110,6 +123,8 @@ export async function POST(request: NextRequest) {
                   "description": "Brief description of items/services",
                   "receipt_number": "Receipt/invoice number if visible",
                   "category": "Best category: Materials, Labor, Equipment, Subcontractor, Travel, Permits, Insurance, or Other",
+                  "payment_method": "credit_card, cash, check, debit_card, or other",
+                  "last_four_digits": "Last 4 digits of card if visible (null if not)",
                   "confidence": "Confidence score 0-100 for data accuracy"
                 }
                 
@@ -154,6 +169,8 @@ export async function POST(request: NextRequest) {
           description: receiptData.description || null,
           receipt_number: receiptData.receipt_number || null,
           category: receiptData.category || 'Other',
+          payment_method: receiptData.payment_method || 'other',
+          last_four_digits: receiptData.last_four_digits || null,
           confidence: Math.min(100, Math.max(0, parseInt(receiptData.confidence) || 0))
         };
       } catch (parseError) {
@@ -171,9 +188,9 @@ export async function POST(request: NextRequest) {
         })
         .eq('id', processingLog.id);
       
-      // Use our advanced AI matching system with contact filtering
+      // Use our advanced AI matching system with phone filtering
       console.log('Finding matching opportunities with AI...');
-      const jobMatches = await findMatchingJobs(userId, receiptData, userApiKey, contactPhone);
+      const jobMatches = await findMatchingJobs(organizationId, receiptData, userApiKey, contactPhone);
       console.log(`Found ${jobMatches.length} AI-powered matches for contact ${contactPhone}`);
       
       // Check for completed job matches if no active matches found
@@ -182,7 +199,7 @@ export async function POST(request: NextRequest) {
       
       if (jobMatches.length === 0) {
         console.log('No active job matches, checking completed jobs...');
-        const completedMatches = await findCompletedJobMatches(userId, receiptData, userApiKey, contactPhone);
+        const completedMatches = await findCompletedJobMatches(organizationId, receiptData, userApiKey, contactPhone);
         if (completedMatches.length > 0) {
           finalMatches = completedMatches;
           matchType = 'completed';
@@ -319,7 +336,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-async function sendApiKeyRequiredMessage(phoneNumber: string, integrationId: string, userId: string) {
+async function sendApiKeyRequiredMessage(phoneNumber: string, integrationId: string, userId: string, organizationId: string) {
   const message = `To process receipts automatically, I need access to an AI service. Please add your OpenAI API key in the settings at ${process.env.NEXT_PUBLIC_APP_URL}/settings/api-keys\n\nOnce added, simply resend your receipt and I'll process it for you!`;
   
   try {

@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { RefreshCw, CheckCircle, XCircle, AlertCircle, Clock, Loader2, Search, ExternalLink } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
-import { useMockAuth } from '@/lib/auth/mock-auth';
+import { useAuth } from '@/lib/auth/auth-context';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -27,7 +27,7 @@ interface Execution {
 }
 
 export default function ExecutionsPage() {
-  const { } = useMockAuth(); // Auth context available
+  const { } = useAuth(); // Auth context available
   const [executions, setExecutions] = useState<Execution[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
