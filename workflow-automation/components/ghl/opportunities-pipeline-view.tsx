@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { DollarSign, Receipt, TrendingUp, TrendingDown, MoreVertical, Plus, FileText, ChevronDown, Building2, Camera, User } from 'lucide-react';
 import { ReceiptModal } from './receipt-modal';
 import { getSupabaseClient } from '@/lib/auth/client';
+import { getUserColor, getInitials } from '@/lib/utils/user-colors';
 
 interface Opportunity {
   id: string;
@@ -256,8 +257,9 @@ export function OpportunitiesPipelineView({
 
   return (
     <div className="space-y-6">
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      {/* Summary Cards - Centered */}
+      <div className="max-w-7xl mx-auto">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-white rounded-lg border border-gray-200 p-6">
           <div className="flex items-center justify-between">
             <div>
@@ -309,9 +311,11 @@ export function OpportunitiesPipelineView({
           </div>
         </div>
       </div>
+      </div>
 
-      {/* Pipeline Filter */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6">
+      {/* Pipeline Filter - Centered */}
+      <div className="max-w-7xl mx-auto">
+        <div className="bg-white rounded-xl border border-gray-200 p-6">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between space-y-4 md:space-y-0">
           <div className="flex flex-col sm:flex-row sm:items-center space-y-3 sm:space-y-0 sm:space-x-4">
             <div className="flex items-center space-x-2">
@@ -372,15 +376,16 @@ export function OpportunitiesPipelineView({
           </div>
         </div>
       </div>
+      </div>
 
-      {/* Pipeline View */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      {/* Pipeline View - Full Width */}
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden w-full">
         <div className="overflow-x-auto">
-          <div className="inline-flex space-x-4 p-4 min-w-full">
+          <div className="flex gap-4 p-4 min-w-full">
             {orderedStages.map((stageName) => {
               const stageOpportunities = opportunitiesByStage[stageName] || [];
               return (
-              <div key={stageName} className="flex-shrink-0 w-80">
+              <div key={stageName} className="flex-1 min-w-[320px]">
                 <div className="bg-gray-50 rounded-lg p-4">
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="font-semibold text-gray-900">{stageName}</h3>
@@ -402,9 +407,20 @@ export function OpportunitiesPipelineView({
                             <h4 className="font-medium text-gray-900 line-clamp-1">{opportunity.name}</h4>
                             <p className="text-sm text-gray-600">{opportunity.contactName}</p>
                             {opportunity.assignedToName && (
-                              <div className="flex items-center mt-1 text-xs text-gray-500">
-                                <User className="w-3 h-3 mr-1" />
-                                <span>{opportunity.assignedToName}</span>
+                              <div className="mt-2">
+                                {(() => {
+                                  const colors = getUserColor(opportunity.assignedTo || opportunity.assignedToName);
+                                  const initials = getInitials(opportunity.assignedToName);
+                                  return (
+                                    <div className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${colors.bg} ${colors.text} ${colors.border} border`}>
+                                      <div className={`w-5 h-5 rounded-full ${colors.bg} ${colors.text} flex items-center justify-center font-semibold text-[10px] mr-1.5`} 
+                                           style={{ backgroundColor: colors.hex, color: 'white' }}>
+                                        {initials}
+                                      </div>
+                                      <span>{opportunity.assignedToName}</span>
+                                    </div>
+                                  );
+                                })()}
                               </div>
                             )}
                           </div>

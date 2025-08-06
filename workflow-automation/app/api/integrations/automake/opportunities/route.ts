@@ -121,7 +121,8 @@ export async function GET(request: NextRequest) {
               .select('commission_type, base_rate, ghl_user_id')
               .eq('opportunity_id', opp.opportunity_id)
               .eq('organization_id', organization.organizationId)
-              .eq('is_active', true);
+              .eq('is_active', true)
+              .eq('is_disabled', false);
             
             // Calculate commissions
             let grossCommissions = 0;
@@ -528,7 +529,8 @@ export async function GET(request: NextRequest) {
             console.log('Processing commission assignment for opportunity:', {
               opportunityId: opp.id,
               assignedTo: opportunityData.assigned_to,
-              assignedToName: assignedUserName
+              assignedToName: assignedUserName,
+              monetaryValue: opportunityData.monetary_value
             });
             
             // Check if commission assignment already exists for this opportunity
@@ -547,7 +549,9 @@ export async function GET(request: NextRequest) {
                                (existingAssignment[0].ghl_user_id !== opportunityData.assigned_to);
             
             if (needsUpdate) {
-              // Look up the user's active payment structure
+              // First try to look up via user_payment_assignments
+              let paymentStructure = null;
+              
               const { data: paymentAssignment } = await supabase
                 .from('user_payment_assignments')
                 .select(`
@@ -565,14 +569,31 @@ export async function GET(request: NextRequest) {
                 .eq('is_active', true)
                 .single();
               
-              console.log('Payment assignment lookup result:', {
-                found: !!paymentAssignment,
+              if (paymentAssignment?.payment_structures) {
+                paymentStructure = paymentAssignment.payment_structures;
+              } else {
+                // Fallback: Look up payment structure directly by GHL user ID
+                const { data: directStructure } = await supabase
+                  .from('user_payment_structures')
+                  .select('*')
+                  .eq('organization_id', organization.organizationId)
+                  .eq('user_id', opportunityData.assigned_to)
+                  .eq('is_active', true)
+                  .single();
+                
+                if (directStructure) {
+                  paymentStructure = directStructure;
+                }
+              }
+              
+              console.log('Payment structure lookup result:', {
+                found: !!paymentStructure,
                 ghlUserId: opportunityData.assigned_to,
-                paymentAssignment
+                paymentStructure
               });
               
-              if (paymentAssignment?.payment_structures && paymentAssignment.payment_structures.commission_percentage) {
-                const structure = paymentAssignment.payment_structures;
+              if (paymentStructure && paymentStructure.commission_percentage) {
+                const structure = paymentStructure;
                 
                 if (existingAssignment && existingAssignment.length > 0) {
                   // Update existing assignment with new user
@@ -675,7 +696,8 @@ export async function GET(request: NextRequest) {
             .select('commission_type, base_rate, ghl_user_id')
             .eq('opportunity_id', opp.id)
             .eq('organization_id', organization.organizationId)
-            .eq('is_active', true);
+            .eq('is_active', true)
+            .eq('is_disabled', false);
           
           // Remove duplicate commissions (by ghl_user_id and commission_type)
           const uniqueCommissions = commissions?.filter((commission, index, self) => 

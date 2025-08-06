@@ -57,10 +57,13 @@ export default function GHLLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  
+  // Use full width for opportunities page content only
+  const isOpportunitiesPage = pathname === '/ghl/opportunities';
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div className="mb-8">
+    <div className="px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-7xl mx-auto mb-8">
         <div className="flex items-center space-x-3 mb-4">
           <div className="w-10 h-10 bg-gradient-to-br from-orange-500 to-red-600 rounded-lg flex items-center justify-center">
             <Building2 className="w-6 h-6 text-white" />
@@ -100,7 +103,7 @@ export default function GHLLayout({
         </div>
       </div>
 
-      <div className="space-y-6">
+      <div className={isOpportunitiesPage ? "w-full" : "max-w-7xl mx-auto space-y-6"}>
         {children}
       </div>
     </div>

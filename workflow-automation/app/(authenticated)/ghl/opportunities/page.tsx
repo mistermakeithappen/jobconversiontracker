@@ -302,30 +302,31 @@ export default function GHLOpportunitiesPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900">Opportunities</h2>
-          <p className="text-gray-600">Pipeline view with profitability tracking and receipt management</p>
-        </div>
-        <div className="flex items-center space-x-3">
-          <span className="flex items-center space-x-2 text-sm text-green-600">
-            <CheckCircle className="w-4 h-4" />
-            <span>Connected</span>
-          </span>
-          <button
-            onClick={syncData}
-            disabled={loading}
-            className="inline-flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            <span>Sync Data</span>
-          </button>
+      {/* Header - Centered */}
+      <div className="max-w-7xl mx-auto">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-2xl font-bold text-gray-900">Opportunities</h2>
+            <p className="text-gray-600">Pipeline view with profitability tracking and receipt management</p>
+          </div>
+          <div className="flex items-center space-x-3">
+            <span className="flex items-center space-x-2 text-sm text-green-600">
+              <CheckCircle className="w-4 h-4" />
+              <span>Connected</span>
+            </span>
+            <button
+              onClick={syncData}
+              disabled={loading}
+              className="inline-flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              <span>Sync Data</span>
+            </button>
+          </div>
         </div>
       </div>
-
       
-      {/* Pipeline View */}
+      {/* Pipeline View - Full Width */}
       {integrationId && (
         <OpportunitiesPipelineView
           opportunities={opportunities}
