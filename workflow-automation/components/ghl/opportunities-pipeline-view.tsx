@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { DollarSign, Receipt, TrendingUp, TrendingDown, MoreVertical, Plus, FileText, ChevronDown, Building2, Camera, User } from 'lucide-react';
+import Link from 'next/link';
+import { DollarSign, Receipt, TrendingUp, TrendingDown, MoreVertical, Plus, FileText, ChevronDown, Building2, Camera, User, AlertCircle, Settings, ArrowRight } from 'lucide-react';
 import { ReceiptModal } from './receipt-modal';
 import { getSupabaseClient } from '@/lib/auth/client';
 import { getUserColor, getInitials } from '@/lib/utils/user-colors';
@@ -334,6 +335,35 @@ export function OpportunitiesPipelineView({
           </div>
         </div>
       </div>
+      
+      {/* Revenue Stage Warning Notice */}
+      {currentPipeline && !revenueStage && totals.count > 0 && (
+        <div className="mt-4 bg-amber-50 border-2 border-amber-200 rounded-lg p-4">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
+            <div className="flex-1">
+              <h4 className="text-sm font-semibold text-amber-900">Pipeline Revenue Stages Not Configured</h4>
+              <p className="text-sm text-amber-700 mt-1">
+                You haven't defined which stage represents revenue recognition for the "{currentPipeline.name}" pipeline. 
+                This means all opportunities are currently showing as pre-revenue (red) and not counting toward your total revenue.
+              </p>
+              <div className="mt-3 flex items-center gap-4">
+                <Link
+                  href="/ghl/settings#pipeline-revenue"
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors text-sm font-medium"
+                >
+                  <Settings className="w-4 h-4" />
+                  Configure Pipeline Stages
+                  <ArrowRight className="w-4 h-4" />
+                </Link>
+                <div className="text-xs text-amber-600">
+                  Takes less than 30 seconds
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       </div>
 
       {/* Pipeline Filter - Centered */}

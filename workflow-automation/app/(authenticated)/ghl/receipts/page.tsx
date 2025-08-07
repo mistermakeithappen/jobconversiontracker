@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Receipt as ReceiptIcon, MessageSquare, Camera, Smartphone, RefreshCw, CheckCircle, Plus, TrendingUp, Eye, Calendar, DollarSign, Building, Check } from 'lucide-react';
+import { Receipt as ReceiptIcon, MessageSquare, Camera, Smartphone, RefreshCw, CheckCircle, Plus, TrendingUp, Eye, Calendar, DollarSign, Building, Check, User } from 'lucide-react';
 import Link from 'next/link';
 
 interface Receipt {
@@ -30,7 +30,7 @@ export default function GHLReceiptsPage() {
     totalReceipts: 0,
     totalReimbursable: 0,
     totalNonReimbursable: 0,
-    recentSMSCount: 0
+    totalReimbursed: 0
   });
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [receiptsLoading, setReceiptsLoading] = useState(true);
@@ -60,14 +60,15 @@ export default function GHLReceiptsPage() {
       
       if (response.ok && data.receipts) {
         const totalReceipts = data.receipts.length;
-        const reimbursable = data.receipts.filter((r: Receipt) => r.is_reimbursable).length;
-        const nonReimbursable = totalReceipts - reimbursable;
+        const pendingReimbursable = data.receipts.filter((r: Receipt) => r.is_reimbursable && (!r.reimbursement_status || r.reimbursement_status === 'pending')).length;
+        const nonReimbursable = data.receipts.filter((r: Receipt) => !r.is_reimbursable).length;
+        const reimbursed = data.receipts.filter((r: Receipt) => r.is_reimbursable && r.reimbursement_status === 'paid').length;
         
         setStats({
           totalReceipts,
-          totalReimbursable: reimbursable,
+          totalReimbursable: pendingReimbursable,
           totalNonReimbursable: nonReimbursable,
-          recentSMSCount: 0 // TODO: implement SMS tracking
+          totalReimbursed: reimbursed
         });
       }
     } catch (error) {
@@ -266,11 +267,11 @@ export default function GHLReceiptsPage() {
 
         <div className="bg-white rounded-xl border border-gray-200 p-6">
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
-              <CheckCircle className="w-5 h-5 text-green-600" />
+            <div className="w-10 h-10 bg-yellow-100 rounded-lg flex items-center justify-center">
+              <ReceiptIcon className="w-5 h-5 text-yellow-600" />
             </div>
             <div>
-              <p className="text-sm text-gray-500">Reimbursable</p>
+              <p className="text-sm text-gray-500">Pending Reimbursement</p>
               <p className="text-2xl font-bold text-gray-900">{stats.totalReimbursable}</p>
             </div>
           </div>
@@ -278,11 +279,11 @@ export default function GHLReceiptsPage() {
 
         <div className="bg-white rounded-xl border border-gray-200 p-6">
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center">
-              <ReceiptIcon className="w-5 h-5 text-red-600" />
+            <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center">
+              <Building className="w-5 h-5 text-gray-600" />
             </div>
             <div>
-              <p className="text-sm text-gray-500">Non-Reimbursable</p>
+              <p className="text-sm text-gray-500">Company Card</p>
               <p className="text-2xl font-bold text-gray-900">{stats.totalNonReimbursable}</p>
             </div>
           </div>
@@ -290,12 +291,12 @@ export default function GHLReceiptsPage() {
 
         <div className="bg-white rounded-xl border border-gray-200 p-6">
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
-              <MessageSquare className="w-5 h-5 text-purple-600" />
+            <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
+              <CheckCircle className="w-5 h-5 text-green-600" />
             </div>
             <div>
-              <p className="text-sm text-gray-500">SMS Messages</p>
-              <p className="text-2xl font-bold text-gray-900">{stats.recentSMSCount}</p>
+              <p className="text-sm text-gray-500">Reimbursed</p>
+              <p className="text-2xl font-bold text-gray-900">{stats.totalReimbursed}</p>
             </div>
           </div>
         </div>
@@ -434,7 +435,7 @@ export default function GHLReceiptsPage() {
                   <th className="text-left py-3 px-4 font-medium text-gray-900">Amount</th>
                   <th className="text-left py-3 px-4 font-medium text-gray-900">Category</th>
                   <th className="text-left py-3 px-4 font-medium text-gray-900">Opportunity</th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-900">Status</th>
+                  <th className="text-left py-3 px-4 font-medium text-gray-900">Submitted By</th>
                   <th className="text-left py-3 px-4 font-medium text-gray-900">Actions</th>
                 </tr>
               </thead>
@@ -478,13 +479,12 @@ export default function GHLReceiptsPage() {
                       )}
                     </td>
                     <td className="py-3 px-4">
-                      <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                        receipt.is_reimbursable
-                          ? 'bg-red-100 text-red-800'
-                          : 'bg-green-100 text-green-800'
-                      }`}>
-                        {receipt.is_reimbursable ? 'Reimbursable' : 'Non-Reimbursable'}
-                      </span>
+                      <div className="flex items-center space-x-2">
+                        <User className="w-4 h-4 text-gray-400" />
+                        <span className="text-sm text-gray-900">
+                          {receipt.submitted_by || 'Unknown'}
+                        </span>
+                      </div>
                     </td>
                     <td className="py-3 px-4">
                       <div className="flex items-center space-x-2">
