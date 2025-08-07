@@ -96,6 +96,45 @@ export async function GET(request: NextRequest) {
         const pipelinesResponse = await tempGhlClient.getPipelines();
         const pipelines = pipelinesResponse.pipelines || [];
         
+        // Get pipeline stage information from database for cached response
+        let pipelineStages: any[] = [];
+        try {
+          const { data, error } = await supabase
+            .from('pipeline_stages')
+            .select('ghl_pipeline_id, ghl_stage_id, is_revenue_recognition_stage, is_completion_stage')
+            .eq('organization_id', organization.organizationId)
+            .eq('integration_id', integration.id);
+          
+          if (!error) {
+            pipelineStages = data || [];
+          }
+        } catch (stageError) {
+          console.error('Error fetching pipeline stages for cache:', stageError);
+        }
+        
+        // Create a map for quick lookup
+        const stageInfoMap = new Map();
+        pipelineStages?.forEach(stage => {
+          const key = `${stage.ghl_pipeline_id}-${stage.ghl_stage_id}`;
+          stageInfoMap.set(key, {
+            isRevenueStage: stage.is_revenue_recognition_stage || false,
+            isCompletionStage: stage.is_completion_stage || false
+          });
+        });
+        
+        // Enhance pipeline data with stage information
+        const enhancedPipelines = pipelines.map((pipeline: any) => ({
+          ...pipeline,
+          stages: pipeline.stages?.map((stage: any) => {
+            const stageInfo = stageInfoMap.get(`${pipeline.id}-${stage.id}`);
+            return {
+              ...stage,
+              isRevenueStage: stageInfo?.isRevenueStage || false,
+              isCompletionStage: stageInfo?.isCompletionStage || false
+            };
+          }) || []
+        }));
+        
         // Transform cached data to match expected format
         const opportunitiesData = await Promise.all(
           cachedOpps.map(async (opp: any) => {
@@ -190,7 +229,7 @@ export async function GET(request: NextRequest) {
         
         return NextResponse.json({ 
           opportunities: opportunitiesData,
-          pipelines,
+          pipelines: enhancedPipelines,
           total: opportunitiesData.length,
           fromCache: true
         });
@@ -224,6 +263,50 @@ export async function GET(request: NextRequest) {
       
       console.log('Pipelines response:', JSON.stringify(pipelinesResponse, null, 2));
       console.log('Number of pipelines found:', pipelines.length);
+      
+      // Get pipeline stage information from database
+      let pipelineStages: any[] = [];
+      try {
+        const { data, error } = await supabase
+          .from('pipeline_stages')
+          .select('ghl_pipeline_id, ghl_stage_id, is_revenue_recognition_stage, is_completion_stage, revenue_stage_override, commission_stage_override')
+          .eq('organization_id', organization.organizationId)
+          .eq('integration_id', integration.id);
+        
+        if (error) {
+          console.error('Error fetching pipeline stages:', error);
+        } else {
+          pipelineStages = data || [];
+        }
+      } catch (stageError) {
+        console.error('Error fetching pipeline stages:', stageError);
+      }
+      
+      // Create a map for quick lookup
+      const stageInfoMap = new Map();
+      pipelineStages?.forEach(stage => {
+        const key = `${stage.ghl_pipeline_id}-${stage.ghl_stage_id}`;
+        stageInfoMap.set(key, {
+          isRevenueStage: stage.is_revenue_recognition_stage || false,
+          isCompletionStage: stage.is_completion_stage || false
+        });
+      });
+      
+      console.log('Pipeline stages found:', pipelineStages?.length || 0);
+      console.log('Stage info map size:', stageInfoMap.size);
+      
+      // Enhance pipeline data with stage information
+      const enhancedPipelines = pipelines.map((pipeline: any) => ({
+        ...pipeline,
+        stages: pipeline.stages?.map((stage: any) => {
+          const stageInfo = stageInfoMap.get(`${pipeline.id}-${stage.id}`);
+          return {
+            ...stage,
+            isRevenueStage: stageInfo?.isRevenueStage || false,
+            isCompletionStage: stageInfo?.isCompletionStage || false
+          };
+        }) || []
+      }));
       
       // Fetch and cache GHL users for name lookup
       const userMap = new Map<string, { name: string; email: string }>();
@@ -350,13 +433,13 @@ export async function GET(request: NextRequest) {
       
       // Check if we should analyze pipeline stages for completion stages
       if (pipelines.length > 0 && integration.config) {
-        const { data: pipelineStages } = await supabase
+        const { data: completionStages } = await supabase
           .from('pipeline_stages')
-          .select('pipeline_id, is_completion_stage, analyzed_at')
+          .select('ghl_pipeline_id, is_completion_stage, last_analyzed_at')
           .eq('integration_id', integration.id)
           .eq('is_completion_stage', true);
         
-        const analyzedPipelineIds = pipelineStages?.map(ps => ps.pipeline_id) || [];
+        const analyzedPipelineIds = completionStages?.map(ps => ps.ghl_pipeline_id) || [];
         const unanalyzedPipelines = pipelines.filter(
           (p: any) => !analyzedPipelineIds.includes(p.id)
         );
@@ -381,11 +464,11 @@ export async function GET(request: NextRequest) {
         }
         
         // Get completion stages for current pipelines
-        const completionStages = integration.pipeline_completion_stages || {};
+        const pipelineCompletionStages = integration.pipeline_completion_stages || {};
         
         // Check commission eligibility for opportunities in completion stages
         for (const opp of finalOpportunities) {
-          const completionStageId = completionStages[opp.pipelineId];
+          const completionStageId = pipelineCompletionStages[opp.pipelineId];
           if (completionStageId && opp.pipelineStageId === completionStageId) {
             // Check if opportunity has commission assignments
             const { data: commissions } = await supabase
@@ -448,6 +531,10 @@ export async function GET(request: NextRequest) {
       const opportunitiesData = await Promise.all(
         (response.opportunities || []).map(async (opp: any) => {
           // Handle both real GHL API format and mock data format
+          // Extract followers array - GHL may send as followerIds, followers, or followersIds
+          const followers = opp.followerIds || opp.followers || opp.followersIds || [];
+          const followersArray = Array.isArray(followers) ? followers : [];
+          
           const opportunityData = {
             organization_id: organization.organizationId,
             opportunity_id: opp.id,
@@ -462,6 +549,8 @@ export async function GET(request: NextRequest) {
             status: opp.status || 'open',
             monetary_value: opp.monetaryValue || opp.monetary_value || 0,
             assigned_to: opp.assignedTo || opp.assignedUserId || opp.assigned_to || null,
+            followers: followersArray,
+            followers_count: followersArray.length,
             total_expenses: 0,  // Will be calculated from receipts
             total_labor_cost: 0,  // Will be calculated from time entries
             ghl_updated_at: opp.updatedAt || opp.dateUpdated || opp.updated_at,
@@ -622,6 +711,7 @@ export async function GET(request: NextRequest) {
                     .insert({
                       organization_id: organization.organizationId,
                       assignment_type: 'opportunity',
+                      assignment_role: 'primary',
                       opportunity_id: opp.id,
                       ghl_user_id: opportunityData.assigned_to,
                       user_name: structure.ghl_user_name || assignedUserName,
@@ -674,6 +764,137 @@ export async function GET(request: NextRequest) {
             }
           }
           
+          // Process follower commission assignments
+          if (followersArray.length > 0) {
+            console.log('Processing follower commissions for opportunity:', {
+              opportunityId: opp.id,
+              followers: followersArray,
+              followerCount: followersArray.length
+            });
+            
+            // Get organization's follower commission settings
+            const { data: orgData } = await supabase
+              .from('organizations')
+              .select('follower_commission_settings')
+              .eq('id', organization.organizationId)
+              .single();
+            
+            const followerSettings = orgData?.follower_commission_settings || {
+              enabled: true,
+              default_follower_rate: 50,
+              max_commissioned_followers: 5
+            };
+            
+            if (followerSettings.enabled) {
+              // Get existing follower assignments for this opportunity
+              const { data: existingFollowerAssignments } = await supabase
+                .from('commission_assignments')
+                .select('id, ghl_user_id')
+                .eq('opportunity_id', opp.id)
+                .eq('organization_id', organization.organizationId)
+                .eq('assignment_type', 'opportunity')
+                .eq('assignment_role', 'follower');
+              
+              const existingFollowerIds = new Set(
+                existingFollowerAssignments?.map(a => a.ghl_user_id) || []
+              );
+              
+              // Process up to max_commissioned_followers
+              const followersToProcess = followersArray.slice(0, followerSettings.max_commissioned_followers);
+              
+              for (const followerId of followersToProcess) {
+                // Skip if this follower already has an assignment
+                if (existingFollowerIds.has(followerId)) continue;
+                
+                // Look up follower's payment structure
+                let followerPaymentStructure = null;
+                
+                // Try user_payment_assignments first
+                const { data: followerPaymentAssignment } = await supabase
+                  .from('user_payment_assignments')
+                  .select(`
+                    ghl_user_id,
+                    payment_structure_id,
+                    payment_structures:user_payment_structures!inner(
+                      user_id,
+                      ghl_user_name,
+                      ghl_user_email,
+                      commission_percentage
+                    )
+                  `)
+                  .eq('organization_id', organization.organizationId)
+                  .eq('ghl_user_id', followerId)
+                  .eq('is_active', true)
+                  .single();
+                
+                if (followerPaymentAssignment?.payment_structures) {
+                  followerPaymentStructure = followerPaymentAssignment.payment_structures;
+                } else {
+                  // Fallback: Look up payment structure directly
+                  const { data: directStructure } = await supabase
+                    .from('user_payment_structures')
+                    .select('*')
+                    .eq('organization_id', organization.organizationId)
+                    .eq('user_id', followerId)
+                    .eq('is_active', true)
+                    .single();
+                  
+                  if (directStructure) {
+                    followerPaymentStructure = directStructure;
+                  }
+                }
+                
+                if (followerPaymentStructure && followerPaymentStructure.commission_percentage) {
+                  // Create commission assignment for follower
+                  const { data: followerAssignment, error: followerError } = await supabase
+                    .from('commission_assignments')
+                    .insert({
+                      organization_id: organization.organizationId,
+                      assignment_type: 'opportunity',
+                      assignment_role: 'follower',
+                      opportunity_id: opp.id,
+                      ghl_user_id: followerId,
+                      user_name: followerPaymentStructure.ghl_user_name || 'Unknown Follower',
+                      user_email: followerPaymentStructure.ghl_user_email,
+                      commission_type: 'percentage_profit',
+                      base_rate: followerPaymentStructure.commission_percentage,
+                      follower_rate_adjustment: 100, // Followers get full rate
+                      is_active: true,
+                      is_disabled: false,
+                      notes: `Auto-assigned as follower`,
+                      created_by: userId
+                    })
+                    .select();
+                  
+                  if (followerError) {
+                    console.error('Error creating follower commission assignment:', followerError);
+                  } else {
+                    console.log('Created follower commission assignment:', followerAssignment);
+                  }
+                }
+              }
+              
+              // Deactivate commission assignments for followers no longer on the opportunity
+              const currentFollowerIds = new Set(followersToProcess);
+              const assignmentsToDeactivate = existingFollowerAssignments?.filter(
+                a => !currentFollowerIds.has(a.ghl_user_id)
+              ) || [];
+              
+              if (assignmentsToDeactivate.length > 0) {
+                await supabase
+                  .from('commission_assignments')
+                  .update({
+                    is_active: false,
+                    updated_at: new Date().toISOString(),
+                    notes: 'Deactivated: no longer a follower'
+                  })
+                  .in('id', assignmentsToDeactivate.map(a => a.id));
+                
+                console.log(`Deactivated ${assignmentsToDeactivate.length} follower assignments`);
+              }
+            }
+          }
+          
           // Get receipt data for this opportunity
           const { data: receipts } = await supabase
             .from('opportunity_receipts')
@@ -690,10 +911,10 @@ export async function GET(request: NextRequest) {
           
           const laborExpenses = timeEntries?.reduce((sum, t) => sum + Number(t.total_cost), 0) || 0;
           
-          // Get commission data from commission_assignments table
+          // Get commission data from commission_assignments table with role and follower adjustment
           const { data: commissions } = await supabase
             .from('commission_assignments')
-            .select('commission_type, base_rate, ghl_user_id')
+            .select('commission_type, base_rate, ghl_user_id, assignment_role, follower_rate_adjustment')
             .eq('opportunity_id', opp.id)
             .eq('organization_id', organization.organizationId)
             .eq('is_active', true)
@@ -707,16 +928,33 @@ export async function GET(request: NextRequest) {
             )
           ) || [];
           
-          // Calculate commissions
+          // Calculate commissions with role-based adjustments
           let grossCommissions = 0;
           let profitCommissions = 0;
+          let primaryCommissions = 0;
+          let followerCommissions = 0;
           
           if (uniqueCommissions && uniqueCommissions.length > 0) {
             
             // Calculate gross-based commissions first (based on total revenue)
             grossCommissions = uniqueCommissions
               .filter(c => c.commission_type === 'percentage_gross')
-              .reduce((sum, c) => sum + (opportunityData.monetary_value * c.base_rate / 100), 0);
+              .reduce((sum, c) => {
+                // Apply follower rate adjustment if this is a follower
+                const adjustmentRate = c.assignment_role === 'follower' 
+                  ? (c.follower_rate_adjustment || 100) / 100
+                  : 1;
+                const commission = opportunityData.monetary_value * c.base_rate * adjustmentRate / 100;
+                
+                // Track primary vs follower commissions
+                if (c.assignment_role === 'follower') {
+                  followerCommissions += commission;
+                } else {
+                  primaryCommissions += commission;
+                }
+                
+                return sum + commission;
+              }, 0);
             
             // Calculate expenses (material + labor + gross commissions)
             const baseExpenses = materialExpenses + laborExpenses + grossCommissions;
@@ -727,7 +965,19 @@ export async function GET(request: NextRequest) {
               .filter(c => c.commission_type === 'percentage_profit')
               .reduce((sum, c) => {
                 const percentage = Number(c.base_rate);
-                const commission = Math.max(0, netBeforeCommissions) * percentage / 100;
+                // Apply follower rate adjustment if this is a follower
+                const adjustmentRate = c.assignment_role === 'follower' 
+                  ? (c.follower_rate_adjustment || 100) / 100
+                  : 1;
+                const commission = Math.max(0, netBeforeCommissions) * percentage * adjustmentRate / 100;
+                
+                // Track primary vs follower commissions
+                if (c.assignment_role === 'follower') {
+                  followerCommissions += commission;
+                } else {
+                  primaryCommissions += commission;
+                }
+                
                 return sum + commission;
               }, 0);
           }
@@ -764,7 +1014,7 @@ export async function GET(request: NextRequest) {
       
       return NextResponse.json({ 
         opportunities: opportunitiesData,
-        pipelines,
+        pipelines: enhancedPipelines,
         total: response.total || opportunitiesData.length,
         limit,
         startAfterId: response.meta?.startAfterId,

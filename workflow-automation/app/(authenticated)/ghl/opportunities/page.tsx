@@ -30,6 +30,8 @@ interface GHLPipeline {
     id: string;
     name: string;
     position: number;
+    isRevenueStage?: boolean;
+    isCompletionStage?: boolean;
   }>;
 }
 
@@ -38,6 +40,7 @@ export default function GHLOpportunitiesPage() {
   const [opportunities, setOpportunities] = useState<GHLOpportunity[]>([]);
   const [pipelines, setPipelines] = useState<GHLPipeline[]>([]);
   const [loading, setLoading] = useState(false);
+  const [backgroundSyncing, setBackgroundSyncing] = useState(false);
   const [connected, setConnected] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'checking' | 'connected' | 'disconnected' | 'needs-reconnection'>('checking');
   const [integrationId, setIntegrationId] = useState<string | null>(null);
@@ -57,8 +60,12 @@ export default function GHLOpportunitiesPage() {
     if (connected) {
       // First load from database for fast display
       fetchOpportunities();
-      // Then sync with GHL in background
-      syncInBackground();
+      // Then sync with GHL in background after a short delay
+      const syncTimer = setTimeout(() => {
+        syncInBackground();
+      }, 1000); // Wait 1 second to let the page fully load
+      
+      return () => clearTimeout(syncTimer);
     }
   }, [connected]);
 
@@ -109,20 +116,39 @@ export default function GHLOpportunitiesPage() {
       const supabase = getSupabaseClient();
       const { data: { session } } = await supabase.auth.getSession();
       
-      // Sync with GHL in background without loading state
-      const syncResponse = await fetch('/api/integrations/automake/sync', {
-        method: 'POST',
+      console.log('Starting background sync...');
+      setBackgroundSyncing(true);
+      
+      // Fetch fresh data from GHL (not from cache) without showing loading state
+      const freshResponse = await fetch('/api/integrations/automake/opportunities', {
         headers: {
           'Authorization': `Bearer ${session?.access_token}`,
         }
       });
       
-      if (syncResponse.ok) {
-        // Refresh opportunities after sync completes
-        await fetchOpportunities();
+      if (freshResponse.ok) {
+        const data = await freshResponse.json();
+        console.log('Background sync completed:', {
+          opportunities: data.opportunities?.length || 0,
+          pipelines: data.pipelines?.length || 0
+        });
+        
+        // Update the state with fresh data
+        setOpportunities(data.opportunities || []);
+        setPipelines(data.pipelines || []);
+        
+        if (data.requestCount || data.totalFetched) {
+          setPaginationInfo({
+            requestCount: data.requestCount,
+            totalFetched: data.totalFetched,
+            maxResultsReached: data.maxResultsReached
+          });
+        }
       }
     } catch (error) {
       console.error('Error syncing opportunities in background:', error);
+    } finally {
+      setBackgroundSyncing(false);
     }
   };
 
@@ -310,13 +336,19 @@ export default function GHLOpportunitiesPage() {
             <p className="text-gray-600">Pipeline view with profitability tracking and receipt management</p>
           </div>
           <div className="flex items-center space-x-3">
+            {backgroundSyncing && (
+              <span className="flex items-center space-x-2 text-sm text-blue-600">
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                <span>Syncing...</span>
+              </span>
+            )}
             <span className="flex items-center space-x-2 text-sm text-green-600">
               <CheckCircle className="w-4 h-4" />
               <span>Connected</span>
             </span>
             <button
               onClick={syncData}
-              disabled={loading}
+              disabled={loading || backgroundSyncing}
               className="inline-flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />

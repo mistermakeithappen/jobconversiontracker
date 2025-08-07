@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
     
     console.log('Fetching commission assignments for opportunity:', opportunityId);
     
-    // Fetch commission assignments for this opportunity
+    // Fetch commission assignments for this opportunity (only active ones)
     const { data: assignments, error: assignmentsError } = await supabase
       .from('commission_assignments')
       .select(`
@@ -30,6 +30,7 @@ export async function GET(request: NextRequest) {
       .eq('organization_id', organization.organizationId)
       .eq('opportunity_id', opportunityId)
       .eq('assignment_type', 'opportunity')
+      .eq('is_active', true)
       .order('created_at', { ascending: false });
     
     if (assignmentsError) {

@@ -159,7 +159,8 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
     user_email: '',
     commission_type: 'gross',
     commission_percentage: '',
-    notes: ''
+    notes: '',
+    product_id: ''
   });
   
   const [selectedCommissionUsers, setSelectedCommissionUsers] = useState<{
@@ -170,8 +171,10 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
     commission_percentage: string;
     notes: string;
     override_enabled?: boolean;
+    product_id?: string;
   }[]>([]);
   const [companyCards, setCompanyCards] = useState<string[]>([]);
+  const [products, setProducts] = useState<any[]>([]);
 
   useEffect(() => {
     fetchReceipts();
@@ -181,6 +184,7 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
     fetchPaymentAssignments();
     fetchCurrentUserGhlName();
     fetchCompanyCards();
+    fetchProducts();
   }, [opportunity.id]);
 
   useEffect(() => {
@@ -297,6 +301,23 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
       }
     } catch (error) {
       console.error('Error fetching payment assignments:', error);
+    }
+  };
+
+  const fetchProducts = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await fetch('/api/products', {
+        headers: {
+          'Authorization': `Bearer ${session?.access_token}`,
+        }
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setProducts(data.products || []);
+      }
+    } catch (error) {
+      console.error('Error fetching products:', error);
     }
   };
 
@@ -658,6 +679,8 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
         }
       });
       
+      const data = await response.json();
+      
       if (response.ok) {
         await fetchCommissions();
         // Force parent component to refresh opportunity data immediately
@@ -665,9 +688,14 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
         if (onUpdate) {
           onUpdate();
         }
+        alert('Commission deleted successfully');
+      } else {
+        console.error('Error deleting commission:', data);
+        alert(`Failed to delete commission: ${data.error || 'Unknown error'}`);
       }
     } catch (error) {
       console.error('Error deleting commission:', error);
+      alert('Failed to delete commission. Please try again.');
     }
   };
   

@@ -1,129 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Settings, CreditCard, DollarSign, Users, Building2 } from 'lucide-react';
+import { Settings, CreditCard, DollarSign, Users, TrendingUp } from 'lucide-react';
 import Link from 'next/link';
-import { GHLConfiguration } from '@/components/ghl/ghl-configuration';
-
-function GHLConfigurationSection() {
-  const [integration, setIntegration] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetchIntegrationStatus();
-  }, []);
-
-  const fetchIntegrationStatus = async () => {
-    try {
-      const response = await fetch('/api/integrations/automake/status');
-      const data = await response.json();
-      
-      if (response.ok) {
-        setIntegration({
-          id: data.integration?.id || 'ghl-integration',
-          connected: data.connected,
-          locationName: data.integration?.config?.locationName || 'Connected Account',
-          needsReconnection: data.needsReconnection,
-          reconnectionReason: data.reconnectionReason
-        });
-      } else {
-        setIntegration({
-          id: 'ghl-integration',
-          connected: false
-        });
-      }
-    } catch (error) {
-      console.error('Error fetching integration status:', error);
-      setIntegration({
-        id: 'ghl-integration',
-        connected: false
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleConnect = async () => {
-    try {
-      const response = await fetch('/api/integrations/automake/connect');
-      const data = await response.json();
-
-      if (response.ok && data.authUrl) {
-        window.location.href = data.authUrl;
-      } else {
-        alert(data.error || 'Failed to initiate connection to GoHighLevel');
-      }
-    } catch (error) {
-      console.error('Error connecting to GHL:', error);
-      alert('Error connecting to GoHighLevel');
-    }
-  };
-
-  const handleDisconnect = async () => {
-    if (!confirm('Are you sure you want to disconnect from GoHighLevel?')) {
-      return;
-    }
-
-    try {
-      const response = await fetch('/api/integrations/automake/disconnect', {
-        method: 'POST'
-      });
-
-      if (response.ok) {
-        window.location.reload();
-      } else {
-        alert('Failed to disconnect from GoHighLevel');
-      }
-    } catch (error) {
-      console.error('Error disconnecting from GHL:', error);
-      alert('Error disconnecting from GoHighLevel');
-    }
-  };
-
-  if (loading || !integration) {
-    return <div className="animate-pulse h-64 bg-gray-200 rounded-lg"></div>;
-  }
-
-  return (
-    <div>
-      <div className="mb-6">
-        <h3 className="text-xl font-semibold text-gray-900">GoHighLevel Configuration</h3>
-        <p className="text-gray-600">Manage your GoHighLevel connection and authentication tokens</p>
-      </div>
-      
-      {/* Reconnection Alert */}
-      {integration.needsReconnection && (
-        <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-          <div className="flex items-start space-x-3">
-            <svg className="w-5 h-5 text-yellow-600 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-            </svg>
-            <div>
-              <h4 className="text-sm font-medium text-yellow-800">Reconnection Required</h4>
-              <p className="text-sm text-yellow-700 mt-1">
-                {integration.reconnectionReason || 'Your GoHighLevel connection needs to be re-authorized. Please reconnect to continue using all features.'}
-              </p>
-              <button
-                onClick={handleConnect}
-                className="mt-2 text-sm font-medium text-yellow-800 hover:text-yellow-900 underline"
-              >
-                Reconnect Now →
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      
-      <GHLConfiguration
-        integrationId={integration.id}
-        connected={integration.connected}
-        locationName={integration.locationName}
-        onConnect={handleConnect}
-        onDisconnect={handleDisconnect}
-      />
-    </div>
-  );
-}
+import { PipelineManualSettings } from '@/components/ghl/pipeline-manual-settings';
 
 export default function GHLSettingsPage() {
   const [stats, setStats] = useState({
@@ -132,10 +12,25 @@ export default function GHLSettingsPage() {
     paymentStructures: 0,
     loading: true
   });
+  const [integrationId, setIntegrationId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchStats();
+    fetchIntegrationId();
   }, []);
+
+  const fetchIntegrationId = async () => {
+    try {
+      const response = await fetch('/api/integrations/automake/status');
+      const data = await response.json();
+      
+      if (response.ok && data.integration?.id) {
+        setIntegrationId(data.integration.id);
+      }
+    } catch (error) {
+      console.error('Error fetching integration ID:', error);
+    }
+  };
 
   const fetchStats = async () => {
     try {
@@ -165,11 +60,11 @@ export default function GHLSettingsPage() {
 
   const settingSections = [
     {
-      id: 'ghl-config',
-      title: 'GoHighLevel Configuration',
-      description: 'Manage OAuth connection and Private Integration Token',
-      icon: Building2,
-      href: '#ghl-config',
+      id: 'pipeline-revenue',
+      title: 'Pipeline Revenue Settings',
+      description: 'Configure which pipeline stages count toward revenue and trigger commissions',
+      icon: TrendingUp,
+      href: '#pipeline-revenue',
       status: 'Available'
     },
     {
@@ -317,33 +212,12 @@ export default function GHLSettingsPage() {
         </div>
       </div>
 
-      {/* Quick Actions */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h3>
-        <div className="space-y-3">
-          <Link
-            href="/settings/credit-cards"
-            className="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:border-gray-300 transition-colors"
-          >
-            <div className="flex items-center space-x-3">
-              <CreditCard className="w-5 h-5 text-gray-600" />
-              <span className="font-medium text-gray-900">Add Company Credit Card</span>
-            </div>
-            <span className="text-sm text-gray-500">→</span>
-          </Link>
-          
-          <Link
-            href="/settings/payment-structure"
-            className="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:border-gray-300 transition-colors"
-          >
-            <div className="flex items-center space-x-3">
-              <DollarSign className="w-5 h-5 text-gray-600" />
-              <span className="font-medium text-gray-900">Set Up Payment Structure</span>
-            </div>
-            <span className="text-sm text-gray-500">→</span>
-          </Link>
+      {/* Pipeline Revenue Settings Section */}
+      {integrationId && (
+        <div id="pipeline-revenue" className="scroll-mt-8 mt-8">
+          <PipelineManualSettings integrationId={integrationId} />
         </div>
-      </div>
+      )}
 
       {/* Future Features */}
       <div className="bg-gray-50 rounded-xl border border-gray-200 p-6">
@@ -380,9 +254,32 @@ export default function GHLSettingsPage() {
         </div>
       </div>
 
-      {/* GoHighLevel Configuration Section */}
-      <div id="ghl-config" className="scroll-mt-8">
-        <GHLConfigurationSection />
+      {/* Quick Actions */}
+      <div className="bg-white rounded-xl border border-gray-200 p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h3>
+        <div className="space-y-3">
+          <Link
+            href="/settings/credit-cards"
+            className="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:border-gray-300 transition-colors"
+          >
+            <div className="flex items-center space-x-3">
+              <CreditCard className="w-5 h-5 text-gray-600" />
+              <span className="font-medium text-gray-900">Add Company Credit Card</span>
+            </div>
+            <span className="text-sm text-gray-500">→</span>
+          </Link>
+          
+          <Link
+            href="/settings/payment-structure"
+            className="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:border-gray-300 transition-colors"
+          >
+            <div className="flex items-center space-x-3">
+              <DollarSign className="w-5 h-5 text-gray-600" />
+              <span className="font-medium text-gray-900">Set Up Payment Structure</span>
+            </div>
+            <span className="text-sm text-gray-500">→</span>
+          </Link>
+        </div>
       </div>
     </div>
   );

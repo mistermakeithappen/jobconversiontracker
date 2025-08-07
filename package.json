@@ -4,6 +4,11 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "dev": "cd workflow-automation && npm run dev",
+    "build": "cd workflow-automation && npm run build",
+    "start": "cd workflow-automation && npm run start",
+    "lint": "cd workflow-automation && npm run lint",
+    "setup-db": "cd workflow-automation && npm run setup-db",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

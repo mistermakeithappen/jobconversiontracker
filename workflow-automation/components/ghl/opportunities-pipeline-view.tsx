@@ -35,6 +35,8 @@ interface Pipeline {
     id: string;
     name: string;
     position: number;
+    isRevenueStage?: boolean;
+    isCompletionStage?: boolean;
   }>;
 }
 
@@ -168,18 +170,35 @@ export function OpportunitiesPipelineView({
 
   const orderedStages = getOrderedStages();
 
-  // Calculate totals
-  const totals = filteredOpportunities.reduce((acc, opp) => ({
-    revenue: acc.revenue + opp.monetaryValue,
-    expenses: acc.expenses + opp.totalExpenses,
-    materialExpenses: acc.materialExpenses + (opp.materialExpenses || 0),
-    laborExpenses: acc.laborExpenses + (opp.laborExpenses || 0),
-    totalCommissions: acc.totalCommissions + (opp.totalCommissions || 0),
-    grossCommissions: acc.grossCommissions + (opp.grossCommissions || 0),
-    profitCommissions: acc.profitCommissions + (opp.profitCommissions || 0),
-    profit: acc.profit + opp.netProfit,
-    count: acc.count + 1
-  }), { 
+  // Find the current pipeline and its revenue stage
+  const currentPipeline = pipelines.find(p => 
+    p.id === selectedPipeline || p.name === selectedPipeline
+  );
+  const revenueStage = currentPipeline?.stages?.find(s => s.isRevenueStage);
+  const revenueStagePosition = revenueStage?.position ?? 999;
+
+  // Calculate totals - only include opportunities in revenue-counting stages
+  const totals = filteredOpportunities.reduce((acc, opp) => {
+    // Find the stage info for this opportunity
+    const oppStageInfo = currentPipeline?.stages?.find(s => s.name === opp.stageName);
+    const oppStagePosition = oppStageInfo?.position ?? 0;
+    
+    // Only count revenue and profit if the opportunity is at or past the revenue recognition stage
+    const isInRevenueStage = revenueStage && oppStagePosition >= revenueStagePosition;
+    
+    return {
+      revenue: acc.revenue + (isInRevenueStage ? opp.monetaryValue : 0),
+      expenses: acc.expenses + opp.totalExpenses, // Always count expenses
+      materialExpenses: acc.materialExpenses + (opp.materialExpenses || 0),
+      laborExpenses: acc.laborExpenses + (opp.laborExpenses || 0),
+      totalCommissions: acc.totalCommissions + (opp.totalCommissions || 0),
+      grossCommissions: acc.grossCommissions + (opp.grossCommissions || 0),
+      profitCommissions: acc.profitCommissions + (opp.profitCommissions || 0),
+      profit: acc.profit + (isInRevenueStage ? opp.netProfit : -opp.totalExpenses), // If pre-revenue, only count negative expenses
+      count: acc.count + 1,
+      revenueCount: acc.revenueCount + (isInRevenueStage ? 1 : 0) // Track revenue-counting opportunities
+    };
+  }, { 
     revenue: 0, 
     expenses: 0, 
     materialExpenses: 0, 
@@ -188,10 +207,11 @@ export function OpportunitiesPipelineView({
     grossCommissions: 0,
     profitCommissions: 0,
     profit: 0, 
-    count: 0 
+    count: 0,
+    revenueCount: 0 
   });
 
-  const avgProfitMargin = totals.count > 0 
+  const avgProfitMargin = totals.revenue > 0 
     ? (totals.profit / totals.revenue * 100).toFixed(2) 
     : '0';
 
@@ -265,6 +285,9 @@ export function OpportunitiesPipelineView({
             <div>
               <p className="text-sm text-gray-600">Total Revenue</p>
               <p className="text-2xl font-bold text-gray-900">{formatCurrency(totals.revenue)}</p>
+              <p className="text-xs text-gray-500 mt-1">
+                {totals.revenueCount} of {totals.count} deals
+              </p>
             </div>
             <DollarSign className="w-8 h-8 text-green-500" />
           </div>
@@ -388,8 +411,47 @@ export function OpportunitiesPipelineView({
               <div key={stageName} className="flex-1 min-w-[320px]">
                 <div className="bg-gray-50 rounded-lg p-4">
                   <div className="flex items-center justify-between mb-4">
-                    <h3 className="font-semibold text-gray-900">{stageName}</h3>
-                    <span className="text-sm text-gray-500">{stageOpportunities.length}</span>
+                    {(() => {
+                      // Find the stage info from the pipeline configuration
+                      const currentPipeline = pipelines.find(p => 
+                        p.id === selectedPipeline || p.name === selectedPipeline
+                      );
+                      const stageInfo = currentPipeline?.stages?.find(s => s.name === stageName);
+                      const isRevenueStage = stageInfo?.isRevenueStage || false;
+                      const isCompletionStage = stageInfo?.isCompletionStage || false;
+                      
+                      // Find the revenue recognition stage for this pipeline
+                      const revenueStage = currentPipeline?.stages?.find(s => s.isRevenueStage);
+                      const currentStagePosition = stageInfo?.position || 0;
+                      const revenueStagePosition = revenueStage?.position || 999;
+                      
+                      // Determine text color based on stage position relative to revenue stage
+                      let textColorClass = 'text-red-600'; // Default to red (pre-revenue)
+                      if (revenueStage && currentStagePosition >= revenueStagePosition) {
+                        textColorClass = 'text-green-600'; // Green for revenue-counting stages and beyond
+                      }
+                      
+                      return (
+                        <>
+                          <div className="flex items-center gap-2">
+                            <h3 className={`font-semibold ${textColorClass}`}>
+                              {stageName}
+                            </h3>
+                            {isRevenueStage && (
+                              <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium">
+                                Revenue
+                              </span>
+                            )}
+                            {isCompletionStage && (
+                              <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full font-medium">
+                                Commission
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-sm text-gray-500">{stageOpportunities.length}</span>
+                        </>
+                      );
+                    })()}
                   </div>
                   
                   <div className="space-y-3">
