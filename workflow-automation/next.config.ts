@@ -10,11 +10,8 @@ const nextConfig: NextConfig = {
     ignoreBuildErrors: true,
   },
   experimental: {
-    // Disable Lightning CSS to avoid missing native binary in some environments (e.g., Vercel)
-    optimizeCss: false,
-  },
-  env: {
-    NEXT_DISABLE_LIGHTNINGCSS: "1",
+    // Exclude lightningcss from server-side bundle
+    serverComponentsExternalPackages: ["lightningcss"],
   },
   webpack: (config, { isServer }) => {
     // Polyfill __dirname and __filename for server-side code
