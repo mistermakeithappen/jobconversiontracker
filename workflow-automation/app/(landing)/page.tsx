@@ -11,6 +11,8 @@ import ROISection from '@/components/landing/ROISection';
 import CTASection from '@/components/landing/CTASection';
 import NavigationBar from '@/components/landing/NavigationBar';
 
+export const runtime = 'nodejs';
+
 // Dynamically import heavy components
 const InteractiveSMSDemo = dynamic(() => import('@/components/landing/InteractiveSMSDemo'), {
   ssr: false,
