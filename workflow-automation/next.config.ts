@@ -13,6 +13,9 @@ const nextConfig: NextConfig = {
     // Disable Lightning CSS to avoid missing native binary in some environments (e.g., Vercel)
     optimizeCss: false,
   },
+  env: {
+    NEXT_DISABLE_LIGHTNINGCSS: "1",
+  },
 };
 
 export default nextConfig;
