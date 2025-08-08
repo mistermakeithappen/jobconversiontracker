@@ -9,6 +9,10 @@ const nextConfig: NextConfig = {
     // Temporarily ignore TypeScript errors during production build
     ignoreBuildErrors: true,
   },
+  experimental: {
+    // Disable Lightning CSS to avoid missing native binary in some environments (e.g., Vercel)
+    optimizeCss: false,
+  },
 };
 
 export default nextConfig;
