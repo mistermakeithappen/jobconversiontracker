@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
+export const runtime = 'nodejs';
+
 // For now, disable middleware auth checking since Supabase uses localStorage
 // Auth will be handled client-side in components
 export function middleware(request: NextRequest) {

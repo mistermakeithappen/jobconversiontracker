@@ -16,6 +16,18 @@ const nextConfig: NextConfig = {
   env: {
     NEXT_DISABLE_LIGHTNINGCSS: "1",
   },
+  webpack: (config, { isServer }) => {
+    // Polyfill __dirname and __filename for server-side code
+    if (isServer) {
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        __dirname: false,
+        __filename: false,
+      };
+    }
+    
+    return config;
+  },
 };
 
 export default nextConfig;

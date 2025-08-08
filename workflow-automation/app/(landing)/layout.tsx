@@ -1,5 +1,7 @@
 import { Metadata } from 'next';
 
+export const runtime = 'nodejs';
+
 export const metadata: Metadata = {
   title: 'The Only CRM Your Team Already Knows How to Use | SMS-Powered Business Management',
   description: 'Zero training required. Your entire team can use it because it works through text messages. Track profit, manage operations, and scale your business - all through SMS.',

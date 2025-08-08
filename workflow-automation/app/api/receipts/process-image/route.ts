@@ -5,6 +5,8 @@ import OpenAI from 'openai';
 import { FileConverter } from '@/lib/utils/file-converter';
 import { findMatchingJobs, findCompletedJobMatches, type ReceiptData, type JobMatch } from '@/lib/services/receipt-matching';
 
+export const runtime = 'nodejs';
+
 // Types are now imported from the shared service
 
 const supabase = getServiceSupabase();
