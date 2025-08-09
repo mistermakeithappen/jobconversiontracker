@@ -15,6 +15,13 @@
   "author": "",
   "license": "ISC",
   "type": "module",
+  "private": true,
+  "workspaces": [
+    "workflow-automation"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "dependencies": {
     "@supabase/supabase-js": "^2.52.1",
     "dotenv": "^17.2.1"
