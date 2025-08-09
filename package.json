@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "dev": "cd workflow-automation && npm run dev",
-    "build": "cd workflow-automation && npm run build",
+    "build": "cd workflow-automation && npm install && npm run build",
     "start": "cd workflow-automation && npm run start",
     "lint": "cd workflow-automation && npm run lint",
     "setup-db": "cd workflow-automation && npm run setup-db",
