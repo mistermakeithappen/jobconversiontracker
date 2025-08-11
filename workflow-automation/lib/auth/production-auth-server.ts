@@ -34,11 +34,11 @@ export async function getAuthUser(request?: NextRequest) {
       }
     } else {
       // Use next/headers for server components
-      const cookieStore = await cookies();
+    const cookieStore = await cookies();
       authCookie = cookieStore.get('sb-access-token');
       refreshCookie = cookieStore.get('sb-refresh-token');
     }
-
+    
     if (!authCookie) {
       return { userId: null, user: null, error: 'No auth cookie found' };
     }
