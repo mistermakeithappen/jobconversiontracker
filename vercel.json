@@ -1,5 +1,5 @@
 {
-  "buildCommand": "cd workflow-automation && npm install && npm run build",
-  "outputDirectory": "workflow-automation/.next",
-  "installCommand": "cd workflow-automation && npm install"
+  "buildCommand": "npm run build",
+  "outputDirectory": ".next",
+  "installCommand": "npm install"
 } 

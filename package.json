@@ -1,0 +1,18 @@
+{
+  "name": "jobconversiontracker",
+  "version": "1.0.0",
+  "description": "Job Conversion Tracker - Workflow Automation Platform",
+  "private": true,
+  "scripts": {
+    "dev": "cd workflow-automation && npm run dev",
+    "build": "cd workflow-automation && npm install && npm run build",
+    "start": "cd workflow-automation && npm run start",
+    "lint": "cd workflow-automation && npm run lint"
+  },
+  "workspaces": [
+    "workflow-automation"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  }
+} 
