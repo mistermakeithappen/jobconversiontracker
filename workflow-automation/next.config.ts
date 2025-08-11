@@ -21,11 +21,12 @@ const nextConfig: NextConfig = {
       '.mjs': ['.mjs', '.mts', '.mtsx'],
     };
     
-    // Force ES modules for server-side code
+    // Prevent __dirname usage without forcing ES modules
     if (isServer) {
-      config.experiments = {
-        ...config.experiments,
-        outputModule: true,
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        __dirname: false,
+        __filename: false,
       };
     }
     
