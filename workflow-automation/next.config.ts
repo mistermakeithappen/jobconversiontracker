@@ -9,16 +9,17 @@ const nextConfig: NextConfig = {
     // Temporarily ignore TypeScript errors during production build
     ignoreBuildErrors: true,
   },
-  // Prevent __dirname errors by ensuring proper module handling
+  // Ensure proper ES module support for Vercel
+  experimental: {
+    esmExternals: true,
+  },
+  // Remove problematic webpack fallbacks that cause issues on Vercel
   webpack: (config, { isServer }) => {
-    if (isServer) {
-      // Ensure server-side code doesn't use __dirname
-      config.resolve.fallback = {
-        ...config.resolve.fallback,
-        __dirname: false,
-        __filename: false,
-      };
-    }
+    // Ensure proper module resolution
+    config.resolve.extensionAlias = {
+      '.js': ['.js', '.ts', '.tsx'],
+      '.mjs': ['.mjs', '.mts', '.mtsx'],
+    };
     return config;
   },
 };
