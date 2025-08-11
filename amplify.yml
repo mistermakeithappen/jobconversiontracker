@@ -1,0 +1,31 @@
+version: 1
+frontend:
+  phases:
+    preBuild:
+      commands:
+        - cd workflow-automation
+        - npm install
+    build:
+      commands:
+        - npm run build
+        - npm run export
+  artifacts:
+    baseDirectory: workflow-automation/out
+    files:
+      - '**/*'
+  cache:
+    paths:
+      - workflow-automation/node_modules/**/*
+  customHeaders:
+    - pattern: '**/*'
+      headers:
+        - key: 'X-Frame-Options'
+          value: 'SAMEORIGIN'
+        - key: 'X-XSS-Protection'
+          value: '1; mode=block'
+        - key: 'X-Content-Type-Options'
+          value: 'nosniff'
+  redirects:
+    - source: '</^[^.]+$|\\.(?!(css|gif|ico|jpg|js|png|txt|svg|woff|woff2|ttf|map|json)$)([^.]+$)/>'
+      target: '/index.html'
+      status: '200' 
