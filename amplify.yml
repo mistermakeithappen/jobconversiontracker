@@ -9,18 +9,11 @@ frontend:
       commands:
         - npm run build
   artifacts:
-    baseDirectory: workflow-automation/.next
+    baseDirectory: workflow-automation
     files:
-      - '**/*'
+      - '.next/**/*'
+      - 'public/**/*'
+      - 'package.json'
   cache:
     paths:
-      - workflow-automation/node_modules/**/*
-  customHeaders:
-    - pattern: '**/*'
-      headers:
-        - key: 'X-Frame-Options'
-          value: 'SAMEORIGIN'
-        - key: 'X-XSS-Protection'
-          value: '1; mode=block'
-        - key: 'X-Content-Type-Options'
-          value: 'nosniff' 
+      - workflow-automation/node_modules/**/* 
