@@ -9,9 +9,6 @@ const nextConfig: NextConfig = {
     // Temporarily ignore TypeScript errors during production build
     ignoreBuildErrors: true,
   },
-  // Enable static export for AWS Amplify
-  output: 'export',
-  trailingSlash: true,
   // Prevent __dirname errors by ensuring proper module handling
   webpack: (config, { isServer }) => {
     if (isServer) {
