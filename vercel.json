@@ -1,6 +1,5 @@
 {
   "buildCommand": "npm run build",
   "outputDirectory": "workflow-automation/.next",
-  "installCommand": "npm install",
-  "framework": "nextjs"
+  "installCommand": "npm install"
 } 
