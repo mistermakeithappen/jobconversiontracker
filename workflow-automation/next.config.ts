@@ -13,13 +13,22 @@ const nextConfig: NextConfig = {
   experimental: {
     esmExternals: true,
   },
-  // Remove problematic webpack fallbacks that cause issues on Vercel
+  // Enhanced webpack config to prevent __dirname issues
   webpack: (config, { isServer }) => {
     // Ensure proper module resolution
     config.resolve.extensionAlias = {
       '.js': ['.js', '.ts', '.tsx'],
       '.mjs': ['.mjs', '.mts', '.mtsx'],
     };
+    
+    // Force ES modules for server-side code
+    if (isServer) {
+      config.experiments = {
+        ...config.experiments,
+        outputModule: true,
+      };
+    }
+    
     return config;
   },
 };
