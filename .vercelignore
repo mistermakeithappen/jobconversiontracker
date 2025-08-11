@@ -1,13 +1,21 @@
-# Ignore only essential files that shouldn't be deployed
-.git/
+# Ignore root directory files that might interfere with Vercel build
+package.json
+package-lock.json
+node_modules/
+.next/
+*.js
+*.mjs
+*.ts
+*.tsx
+
+# Ignore specific directories
 .claude/
+.git/
 .env
 *.log
 .DS_Store
 
-# But preserve the workflow-automation folder and package.json
+# But preserve the workflow-automation folder and its vercel.json
 !workflow-automation/
 !workflow-automation/**
-!package.json
-!.vercelignore
-!vercel.json 
+!.vercelignore 
