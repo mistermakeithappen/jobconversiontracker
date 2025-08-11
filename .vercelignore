@@ -1,0 +1,11 @@
+# Ignore everything in the parent directory
+*
+!workflow-automation/
+!workflow-automation/**
+
+# Only allow the workflow-automation folder and its contents
+# Explicitly ignore all JavaScript/TypeScript files in parent
+*.js
+*.mjs
+*.ts
+*.tsx 

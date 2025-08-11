@@ -1,0 +1,7 @@
+{
+  "buildCommand": "cd workflow-automation && npm install && npm run build",
+  "outputDirectory": "workflow-automation/.next",
+  "installCommand": "cd workflow-automation && npm install",
+  "framework": "nextjs",
+  "rootDirectory": "workflow-automation"
+} 
