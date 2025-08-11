@@ -2,7 +2,6 @@
   "name": "workflow-automation",
   "version": "0.1.0",
   "private": true,
-  "type": "module",
   "scripts": {
     "dev": "next dev --turbopack",
     "dev:ngrok": "concurrently \"npm run dev\" \"sleep 5 && ngrok http 3001\"",

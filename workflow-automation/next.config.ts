@@ -9,18 +9,14 @@ const nextConfig: NextConfig = {
     // Temporarily ignore TypeScript errors during production build
     ignoreBuildErrors: true,
   },
-  experimental: {
-    // Force ES modules to prevent __dirname errors
-    esmExternals: true,
-    serverComponentsExternalPackages: [],
-  },
-  // Ensure we're using ES modules
+  // Prevent __dirname errors by ensuring proper module handling
   webpack: (config, { isServer }) => {
     if (isServer) {
-      // Force ES modules for server-side code
-      config.experiments = {
-        ...config.experiments,
-        outputModule: true,
+      // Ensure server-side code doesn't use __dirname
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        __dirname: false,
+        __filename: false,
       };
     }
     return config;
