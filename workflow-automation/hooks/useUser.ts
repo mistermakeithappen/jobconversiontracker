@@ -27,6 +27,12 @@ export function useUser() {
   });
 
   useEffect(() => {
+    // Only run on client side, not during build/SSR
+    if (typeof window === 'undefined') {
+      setUserData(prev => ({ ...prev, loading: false }));
+      return;
+    }
+
     async function loadUser() {
       try {
         const supabase = getSupabaseClient();

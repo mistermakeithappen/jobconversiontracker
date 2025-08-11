@@ -1,0 +1,35 @@
+version: 1
+frontend:
+  phases:
+    preBuild:
+      commands:
+        - cd workflow-automation
+        - npm install
+    build:
+      commands:
+        - npm run build
+  artifacts:
+    baseDirectory: workflow-automation
+    files:
+      - '**/*'
+  customHeaders:
+    - pattern: '**/*'
+      headers:
+        - key: 'Cache-Control'
+          value: 'public, max-age=0, must-revalidate'
+  redirects:
+    - source: '/_next/(.*)'
+      target: '/_next/$1'
+      status: '200'
+    - source: '/public/(.*)'
+      target: '/public/$1'
+      status: '200'
+    - source: '/api/(.*)'
+      target: '/api/$1'
+      status: '200'
+    - source: '/(.*)'
+      target: '/'
+      status: '200'
+  cache:
+    paths:
+      - workflow-automation/node_modules/**/* 

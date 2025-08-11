@@ -1,0 +1,14 @@
+# Vercel ignore file for workflow-automation
+# Don't ignore anything important for the build
+!.next/
+!public/
+!app/
+!components/
+!lib/
+!middleware.ts
+!next.config.ts
+!package.json
+!package-lock.json
+!tsconfig.json
+!tailwind.config.mjs
+!postcss.config.mjs 

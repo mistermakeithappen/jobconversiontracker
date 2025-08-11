@@ -1,0 +1,6 @@
+{
+  "rootDirectory": "workflow-automation",
+  "buildCommand": "npm install && npm run build",
+  "outputDirectory": ".next",
+  "installCommand": "npm install"
+} 
