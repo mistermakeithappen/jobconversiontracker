@@ -1,66 +1,44 @@
+import { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
-import { NextRequest } from 'next/server';
 
+// Create a Supabase client for service-level operations
 export function getServiceSupabase() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false
-      }
-    }
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
 }
 
+// Get authenticated user from cookies
 export async function getAuthUser(request?: NextRequest) {
   try {
-    // First, try to get auth from Authorization header
+    // Get cookies from the request or from next/headers
+    let authCookie: { name: string; value: string } | undefined;
+    let refreshCookie: { name: string; value: string } | undefined;
+
     if (request) {
-      const authHeader = request.headers.get('authorization');
-      if (authHeader && authHeader.startsWith('Bearer ')) {
-        const token = authHeader.substring(7);
-        
-        // Create a Supabase client with the access token
-        const supabase = createClient(
-          process.env.NEXT_PUBLIC_SUPABASE_URL!,
-          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-          {
-            global: {
-              headers: {
-                Authorization: `Bearer ${token}`
-              }
-            },
-            auth: {
-              persistSession: false,
-              autoRefreshToken: false
-            }
+      // If we have a request object, get cookies from it
+      const cookieHeader = request.headers.get('cookie');
+      if (cookieHeader) {
+        const cookies = cookieHeader.split(';').reduce((acc, cookie) => {
+          const [name, value] = cookie.trim().split('=');
+          if (name && value) {
+            acc[name] = decodeURIComponent(value);
           }
-        );
+          return acc;
+        }, {} as Record<string, string>);
         
-        // Get the user from this authenticated client
-        const { data: { user }, error } = await supabase.auth.getUser();
-        
-        if (!error && user) {
-          console.log('Auth header user found:', user.id, user.email);
-          return { 
-            userId: user.id, 
-            user: user, 
-            error: null 
-          };
-        } else {
-          console.error('Auth header validation failed:', error);
-        }
+        authCookie = cookies['sb-access-token'] ? { name: 'sb-access-token', value: cookies['sb-access-token'] } : undefined;
+        refreshCookie = cookies['sb-refresh-token'] ? { name: 'sb-refresh-token', value: cookies['sb-refresh-token'] } : undefined;
       }
+    } else {
+      // Use next/headers for server components
+      const cookieStore = await cookies();
+      authCookie = cookieStore.get('sb-access-token');
+      refreshCookie = cookieStore.get('sb-refresh-token');
     }
-    
-    // Fall back to cookie-based auth
-    const cookieStore = await cookies();
-    const authCookie = cookieStore.get('supabase-auth-token');
-    const refreshCookie = cookieStore.get('supabase-refresh-token');
-    
+
     if (!authCookie) {
       return { userId: null, user: null, error: 'No auth cookie found' };
     }
@@ -156,7 +134,7 @@ export async function requireAuth(request?: NextRequest) {
 export async function requireAuthWithOrg(request?: NextRequest) {
   const { userId, user } = await requireAuth(request);
   
-  // Import here to avoid circular dependency
+  // Import here to avoid circular dependency - using dynamic import
   const { getUserOrganization } = await import('./organization-helper');
   const organization = await getUserOrganization(userId);
   
