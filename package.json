@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Job Conversion Tracker - Workflow Automation Platform",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "cd workflow-automation && npm run dev",
     "build": "cd workflow-automation && npm install && npm run build",
