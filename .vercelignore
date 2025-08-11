@@ -1,14 +1,26 @@
-# Ignore everything in the parent directory EXCEPT workflow-automation
-*
-!workflow-automation/
-!workflow-automation/**
+# Ignore specific files and directories in the parent folder
+# But preserve the workflow-automation folder and its contents
 
-# Explicitly ignore all JavaScript/TypeScript files in parent
+# Ignore JavaScript/TypeScript files in parent directory
 *.js
 *.mjs
 *.ts
 *.tsx
 
-# But don't ignore the workflow-automation folder structure
+# Ignore specific directories
+.claude/
+.git/
+.next/
+node_modules/
+
+# Ignore specific files
+.env
+*.md
+*.log
+.DS_Store
+
+# But DON'T ignore these
+!workflow-automation/
+!workflow-automation/**
 !.vercelignore
 !vercel.json 
