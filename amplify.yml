@@ -11,11 +11,25 @@ frontend:
   artifacts:
     baseDirectory: workflow-automation
     files:
-      - '.next/**/*'
-      - 'public/**/*'
-      - 'package.json'
-      - 'next.config.ts'
-      - 'index.html'
+      - '**/*'
+  customHeaders:
+    - pattern: '**/*'
+      headers:
+        - key: 'Cache-Control'
+          value: 'public, max-age=0, must-revalidate'
+  redirects:
+    - source: '/_next/(.*)'
+      target: '/_next/$1'
+      status: '200'
+    - source: '/public/(.*)'
+      target: '/public/$1'
+      status: '200'
+    - source: '/api/(.*)'
+      target: '/api/$1'
+      status: '200'
+    - source: '/(.*)'
+      target: '/'
+      status: '200'
   cache:
     paths:
       - workflow-automation/node_modules/**/* 
