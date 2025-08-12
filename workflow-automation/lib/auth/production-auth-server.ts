@@ -157,7 +157,7 @@ export async function requireAuthWithOrg(request?: NextRequest) {
   const { userId, user } = await requireAuth(request);
   
   // Import here to avoid circular dependency
-  const { getUserOrganization } = require('./organization-helper');
+  const { getUserOrganization } = await import('./organization-helper');
   const organization = await getUserOrganization(userId);
   
   return { userId, user, organization };
