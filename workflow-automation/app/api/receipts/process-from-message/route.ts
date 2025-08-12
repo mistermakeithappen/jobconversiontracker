@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import OpenAI from 'openai';
-import { FileConverter } from '@/lib/utils/file-converter';
+import { WebFileConverter } from '@/lib/utils/web-file-converter';
 import { decrypt } from '@/lib/utils/encryption';
 import ApiKeyManager from '@/lib/utils/api-key-manager';
 import { findMatchingJobs, findCompletedJobMatches, type ReceiptData } from '@/lib/services/receipt-matching';

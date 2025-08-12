@@ -3,17 +3,17 @@ import { getServiceSupabase } from '@/lib/auth/production-auth-server';
 import ApiKeyManager from '@/lib/utils/api-key-manager';
 import OpenAI from 'openai';
 import { WebFileConverter } from '@/lib/utils/web-file-converter';
+import { createS3Service, S3Service, type FileMetadata } from '@/lib/services/s3-service';
 import { findMatchingJobs, findCompletedJobMatches, type ReceiptData, type JobMatch } from '@/lib/services/receipt-matching';
-
-// Types are now imported from the shared service
 
 const supabase = getServiceSupabase();
 
 export async function POST(request: NextRequest) {
-  console.log('=== Receipt Processing API Called ===');
+  console.log('=== S3 Receipt Processing API Called ===');
+  
   try {
     const formData = await request.formData();
-    const imageFile = formData.get('file') || formData.get('image') as File;
+    const imageFile = formData.get('file') || formData.get('image');
     const userPhone = formData.get('userPhone') as string;
     const userEmail = formData.get('userEmail') as string;
     const opportunityId = formData.get('opportunityId') as string;
@@ -28,36 +28,25 @@ export async function POST(request: NextRequest) {
       integrationId
     });
     
-    if (!imageFile) {
-      console.error('No image file found in form data');
+    if (!imageFile || !(imageFile instanceof File)) {
+      console.error('No valid image file found in form data');
       return NextResponse.json({ 
         success: false,
-        error: 'No image provided',
-        details: 'Image file was not found in the form data'
+        error: 'No valid image file provided',
+        details: 'Image file was not found or is not a valid file in the form data'
       }, { status: 400 });
     }
 
     console.log('Processing receipt image from:', userPhone || userEmail || 'user upload');
     console.log('Original file type:', imageFile.type, 'size:', imageFile.size);
 
-    // Step 1: Validate and convert file to PNG
+    // Step 1: Validate file
     const validation = WebFileConverter.validateFile(imageFile);
     if (!validation.valid) {
       return NextResponse.json({ error: validation.error }, { status: 400 });
     }
 
-    const conversionResult = await WebFileConverter.convertToPNG(imageFile);
-    if (!conversionResult.success || !conversionResult.pngDataUrl) {
-      return NextResponse.json({ 
-        error: conversionResult.error || 'File conversion failed' 
-      }, { status: 400 });
-    }
-
-    // Use the PNG data URL directly for OpenAI
-    const imageDataUrl = conversionResult.pngDataUrl;
-    console.log(`Converted ${conversionResult.originalFormat} to PNG`);
-
-    // Step 1: Find user by phone/email first to get their API key
+    // Step 2: Find user by phone/email to get their API key
     console.log('Finding user by contact:', { userPhone, userEmail });
     const user = await findUserByContact(userPhone, userEmail);
     if (!user) {
@@ -70,7 +59,7 @@ export async function POST(request: NextRequest) {
     }
     console.log('User found:', user.userId);
 
-    // Step 2: Get user's OpenAI API key
+    // Step 3: Get user's OpenAI API key
     console.log('Getting OpenAI API key for user:', user.userId);
     const userApiKey = await ApiKeyManager.getApiKey(user.userId, 'openai');
     if (!userApiKey) {
@@ -83,89 +72,173 @@ export async function POST(request: NextRequest) {
     }
     console.log('OpenAI API key retrieved successfully');
 
-    // Step 3: Extract receipt data using user's OpenAI API key
-    const receiptData = await extractReceiptData(imageDataUrl, userApiKey);
+    // Step 4: Convert image to PNG using web-compatible converter
+    console.log('Converting image to PNG...');
+    const conversionResult = await WebFileConverter.convertToPNG(imageFile);
+    if (!conversionResult.success || !conversionResult.pngDataUrl) {
+      return NextResponse.json({ 
+        error: conversionResult.error || 'File conversion failed' 
+      }, { status: 400 });
+    }
+    console.log('Image converted successfully');
+
+    // Step 5: Upload to S3
+    console.log('Uploading to S3...');
+    const s3Service = createS3Service();
+    
+    const fileMetadata: FileMetadata = {
+      originalName: imageFile.name,
+      mimeType: 'image/png',
+      size: imageFile.size,
+      userId: user.userId,
+      organizationId: user.locationId,
+      category: 'receipts'
+    };
+
+    const s3Key = S3Service.generateKey(fileMetadata);
+    const base64Data = WebFileConverter.extractBase64FromDataUrl(conversionResult.pngDataUrl);
+    const buffer = WebFileConverter.base64ToBuffer(base64Data);
+
+    const uploadResult = await s3Service.uploadFile(
+      s3Key,
+      buffer,
+      'image/png',
+      {
+        originalName: imageFile.name,
+        originalType: imageFile.type,
+        userId: user.userId,
+        organizationId: user.locationId
+      }
+    );
+
+    if (!uploadResult.success) {
+      return NextResponse.json({ 
+        error: 'Failed to upload to S3',
+        details: uploadResult.error 
+      }, { status: 500 });
+    }
+    console.log('File uploaded to S3:', s3Key);
+
+    // Step 6: Extract receipt data using OpenAI
+    const receiptData = await extractReceiptData(conversionResult.pngDataUrl, userApiKey);
     console.log('Extracted receipt data:', receiptData);
 
-    // Step 4: Find matching opportunities with pipeline intelligence
-    // Extract contact phone from form data if available
+    // Step 7: Find matching opportunities
     const contactPhone = formData.get('contactPhone') as string;
     const contactId = formData.get('contactId') as string;
     
     const jobMatches = await findMatchingJobs(user.locationId, receiptData, userApiKey, contactPhone);
     console.log('Found job matches:', jobMatches);
 
-    // Step 5: Determine response based on matches
+    // Step 8: Generate response
     let response = await generateResponse(receiptData, jobMatches, user);
     
-    // Step 5b: If no matches found, check completed jobs as fallback
-    if (jobMatches.length === 0 && response.type === 'no_match') {
-      console.log('No matches in active stages, checking completed jobs...');
-      const completedMatches = await findCompletedJobMatches(user.userId, receiptData, userApiKey, contactPhone, contactId);
-      if (completedMatches.length > 0) {
-        response = await generateCompletedJobResponse(receiptData, completedMatches, user);
-      }
+    // Step 9: Store receipt record in database
+    const receiptRecord = {
+      organization_id: user.locationId,
+      opportunity_id: opportunityId || 'temp_' + Date.now().toString(),
+      contact_id: null,
+      amount: parseFloat(receiptData.amount) || 0,
+      receipt_date: receiptData.receipt_date || new Date().toISOString().split('T')[0],
+      receipt_type: 'expense',
+      category: receiptData.category || 'Other',
+      description: receiptData.description || null,
+      image_url: uploadResult.url,
+      thumbnail_url: uploadResult.url,
+      is_reimbursable: false,
+      reimbursement_status: 'pending',
+      team_member_id: null,
+      submitted_by_name: null,
+      submitted_by_phone: userPhone || null,
+      ai_extracted_data: {
+        vendor_name: receiptData.vendor_name || 'Unknown Vendor',
+        receipt_number: receiptData.receipt_number || null,
+        confidence: Math.min(100, Math.max(0, parseInt(receiptData.confidence) || 0)),
+        s3_key: s3Key,
+        original_filename: imageFile.name,
+        original_mime_type: imageFile.type,
+        processed_mime_type: 'image/png',
+        file_size: imageFile.size
+      },
+      ai_confidence_score: Math.min(1, Math.max(0, (parseInt(receiptData.confidence) || 0) / 100)),
+      manual_review_required: false,
+      company_card_id: null,
+      is_company_card_expense: false,
+      metadata: {
+        integration_id: integrationId || null,
+        source: 'web_upload',
+        ai_processed: true
+      },
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      created_by: user.userId.toString()
+    };
+
+    const { data: receipt, error: receiptError } = await supabase
+      .from('opportunity_receipts')
+      .insert([receiptRecord])
+      .select()
+      .single();
+
+    if (receiptError) {
+      console.error('Failed to store receipt:', receiptError);
+      // Continue anyway, don't fail the whole request
     }
 
-    // Step 6: Store the processing record
-    await storeReceiptProcessing(user.userId, receiptData, jobMatches, response);
+    // Step 10: Store processing log
+    await storeReceiptProcessing(user.userId.toString(), receiptData, jobMatches, response);
 
     return NextResponse.json({
       success: true,
-      receiptData,
-      jobMatches,
-      response,
-      nextAction: jobMatches.length === 1 ? 'auto_confirm' : 'user_select'
+      message: response.message,
+      type: response.type,
+      needsJobSelection: response.needsJobSelection,
+      needsConfirmation: response.needsConfirmation,
+      needsSelection: response.needsSelection,
+      suggestedJobId: response.suggestedJobId,
+      options: response.options,
+      receipt_id: receipt?.id,
+      s3_url: uploadResult.url
     });
 
   } catch (error) {
-    console.error('Error processing receipt image:', error);
-    console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace');
-    
-    return NextResponse.json({ 
-      success: false,
-      error: 'Failed to process receipt image',
-      details: error instanceof Error ? error.message : 'Unknown error',
-      type: error instanceof Error ? error.constructor.name : 'UnknownError'
-    }, { status: 500 });
+    console.error('S3 receipt processing error:', error);
+    return NextResponse.json(
+      { 
+        success: false,
+        error: 'Failed to process receipt',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      },
+      { status: 500 }
+    );
   }
 }
 
+// Helper functions (same as before but adapted for S3)
 async function extractReceiptData(imageDataUrl: string, apiKey: string): Promise<ReceiptData> {
-  const openai = new OpenAI({
-    apiKey: apiKey
-  });
+  const openai = new OpenAI({ apiKey });
   
+  const prompt = `Extract receipt information from this image. Return ONLY a JSON object with these fields:
+  {
+    "vendor_name": "string",
+    "amount": "number as string",
+    "receipt_date": "YYYY-MM-DD",
+    "description": "string",
+    "receipt_number": "string",
+    "category": "string",
+    "confidence": "number 0-100"
+  }`;
+
   const response = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
+    model: "gpt-4-vision-preview",
     messages: [
       {
         role: "user",
         content: [
-          {
-            type: "text",
-            text: `Analyze this receipt image and extract the following information. Return ONLY a JSON object with no additional text or formatting:
-            {
-              "vendor_name": "Business name from the receipt",
-              "amount": "Total amount as a number (no currency symbols)",
-              "receipt_date": "Date in YYYY-MM-DD format",
-              "description": "Brief description of items/services",
-              "receipt_number": "Receipt/invoice number if visible",
-              "category": "Best category: Materials, Labor, Equipment, Subcontractor, Travel, Permits, Insurance, or Other",
-              "confidence": "Confidence score 0-100 for data accuracy"
-            }
-            
-            Rules:
-            - Return ONLY the JSON object, no markdown formatting, no explanations
-            - Use null for fields you cannot read clearly
-            - For amount, use only numbers (e.g., 123.45 not "$123.45")
-            - confidence should be a number between 0 and 100`
-          },
+          { type: "text", text: prompt },
           {
             type: "image_url",
-            image_url: {
-              url: imageDataUrl
-            }
+            image_url: { url: imageDataUrl }
           }
         ]
       }
@@ -175,39 +248,18 @@ async function extractReceiptData(imageDataUrl: string, apiKey: string): Promise
 
   const content = response.choices[0]?.message?.content;
   if (!content) {
-    throw new Error('No response from OpenAI Vision API');
+    throw new Error('No response from OpenAI');
   }
 
-  console.log('Raw OpenAI response:', content);
-
   try {
-    // Try to extract JSON from the response (in case it's wrapped in markdown or other text)
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    const jsonString = jsonMatch ? jsonMatch[0] : content;
-    
-    const receiptData = JSON.parse(jsonString);
-    
-    // Validate and clean the data
-    return {
-      vendor_name: receiptData.vendor_name || 'Unknown Vendor',
-      amount: parseFloat(receiptData.amount) || 0,
-      receipt_date: receiptData.receipt_date || new Date().toISOString().split('T')[0],
-      description: receiptData.description || null,
-      receipt_number: receiptData.receipt_number || null,
-      category: receiptData.category || 'Other',
-      confidence: Math.min(100, Math.max(0, parseInt(receiptData.confidence) || 0))
-    };
+    return JSON.parse(content);
   } catch (parseError) {
     console.error('Failed to parse OpenAI response:', content);
-    console.error('Parse error:', parseError);
     throw new Error(`Failed to parse receipt data from AI response. Raw response: ${content.substring(0, 200)}...`);
   }
 }
 
 async function findUserByContact(phone?: string, email?: string) {
-  // In a real implementation, this would query your user database
-  // For now, we'll use mock auth and check against GHL contacts
-  
   if (!phone && !email) {
     return null;
   }
@@ -258,26 +310,7 @@ async function generateResponse(receiptData: ReceiptData, jobMatches: JobMatch[]
   };
 }
 
-async function generateCompletedJobResponse(receiptData: ReceiptData, jobMatches: JobMatch[], user: any) {
-  const amount = new Intl.NumberFormat('en-US', { 
-    style: 'currency', 
-    currency: 'USD' 
-  }).format(receiptData.amount);
-
-  const matchList = jobMatches.slice(0, 3).map((match, index) => 
-    `${index + 1}) ${match.opportunityName} (${match.confidence}% match - COMPLETED JOB)`
-  ).join('\n');
-
-  return {
-    message: `Receipt processed! Found ${amount} from ${receiptData.vendor_name} on ${receiptData.receipt_date}. This appears to be for a completed job:\n\n${matchList}\n\nReply with the number to assign to a completed job, or "NEW" if this is for a current active job not listed.`,
-    type: 'completed_job_matches',
-    needsSelection: true,
-    options: jobMatches.slice(0, 3)
-  };
-}
-
 async function storeReceiptProcessing(userId: string, receiptData: ReceiptData, jobMatches: JobMatch[], response: any) {
-  // Store the receipt processing record for follow-up
   await supabase
     .from('receipt_processing_log')
     .insert({
@@ -288,4 +321,4 @@ async function storeReceiptProcessing(userId: string, receiptData: ReceiptData, 
       status: 'pending_user_response',
       created_at: new Date().toISOString()
     });
-}
+} 
