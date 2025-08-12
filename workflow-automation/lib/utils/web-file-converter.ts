@@ -133,8 +133,8 @@ export class WebFileConverter {
           // Draw and convert to PNG
           ctx.drawImage(img, 0, 0, width, height);
           
-          // Convert to data URL with quality optimization
-          const pngDataUrl = canvas.toDataURL('image/png', 0.9);
+          // Convert to data URL (PNG doesn't support quality parameter)
+          const pngDataUrl = canvas.toDataURL('image/png');
           resolve(pngDataUrl);
         } catch (error) {
           reject(error);
@@ -179,7 +179,11 @@ export class WebFileConverter {
    * Extract base64 data from data URL
    */
   static extractBase64FromDataUrl(dataUrl: string): string {
-    return dataUrl.split(',')[1];
+    const match = dataUrl.match(/^data:[^;]+;base64,(.*)$/);
+    if (!match || !match[1]) {
+      throw new Error('Invalid data URL format. Expected format: data:[mime-type];base64,[data]');
+    }
+    return match[1];
   }
 
   /**
