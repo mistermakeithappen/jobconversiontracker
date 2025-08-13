@@ -137,25 +137,25 @@ export const manageSubscriptionStatusChange = async (
     quantity: subscription.items.data[0].quantity,
     cancel_at_period_end: subscription.cancel_at_period_end,
     cancel_at: subscription.cancel_at
-      ? toDateTime(subscription.cancel_at).toISOString()
+      ? toDateTime(subscription.cancel_at)?.toISOString() || null
       : null,
     canceled_at: subscription.canceled_at
-      ? toDateTime(subscription.canceled_at).toISOString()
+      ? toDateTime(subscription.canceled_at)?.toISOString() || null
       : null,
     current_period_start: toDateTime(
-      subscription.current_period_start
-    ).toISOString(),
+      (subscription as any).current_period_start
+    )?.toISOString() || null,
     current_period_end: toDateTime(
-      subscription.current_period_end
-    ).toISOString(),
+      (subscription as any).current_period_end
+    )?.toISOString() || null,
     ended_at: subscription.ended_at
-      ? toDateTime(subscription.ended_at).toISOString()
+      ? toDateTime(subscription.ended_at)?.toISOString() || null
       : null,
     trial_start: subscription.trial_start
-      ? toDateTime(subscription.trial_start).toISOString()
+      ? toDateTime(subscription.trial_start)?.toISOString() || null
       : null,
     trial_end: subscription.trial_end
-      ? toDateTime(subscription.trial_end).toISOString()
+      ? toDateTime(subscription.trial_end)?.toISOString() || null
       : null,
   };
 
