@@ -48,7 +48,7 @@ export async function POST() {
 
     const { url } = await stripe.billingPortal.sessions.create({
       customer,
-      return_url: `${getURL()}/settings/account`,
+      return_url: `${getURL()}settings/billing`,
     });
 
     return NextResponse.json({ url });

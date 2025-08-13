@@ -52,8 +52,8 @@ export async function POST(req: Request) {
         subscription_data: {
           metadata,
         },
-        success_url: `${getURL()}/settings/account`,
-        cancel_url: `${getURL()}/`,
+        success_url: `${getURL()}settings/billing`,
+        cancel_url: `${getURL()}pricing`,
       });
 
       return NextResponse.json({ sessionId: session.id });
