@@ -131,7 +131,7 @@ export const manageSubscriptionStatusChange = async (
   console.log(`✅ Found customer UUID: ${uuid}`);
 
   const subscription = await stripe.subscriptions.retrieve(subscriptionId, {
-    expand: ['default_payment_method'],
+    expand: ['default_payment_method', 'items.data.price.product'],
   });
   
   console.log(`✅ Retrieved subscription:`, {
@@ -145,6 +145,33 @@ export const manageSubscriptionStatusChange = async (
     trial_end: subscription.trial_end,
     ended_at: subscription.ended_at
   });
+
+  // Ensure price and product records exist
+  const priceItem = subscription.items.data[0];
+  const stripePrice = priceItem.price;
+  const stripeProduct = stripePrice.product as any;
+
+  console.log(`🔄 Ensuring price and product records exist for price: ${stripePrice.id}`);
+
+  try {
+    // First, ensure the product exists
+    if (stripeProduct && typeof stripeProduct === 'object') {
+      await upsertProductRecord(stripeProduct);
+      console.log(`✅ Product record ensured: ${stripeProduct.id}`);
+    } else if (typeof stripeProduct === 'string') {
+      // If product is just an ID, fetch it from Stripe
+      const fullProduct = await stripe.products.retrieve(stripeProduct);
+      await upsertProductRecord(fullProduct);
+      console.log(`✅ Product record ensured: ${fullProduct.id}`);
+    }
+
+    // Then, ensure the price exists
+    await upsertPriceRecord(stripePrice);
+    console.log(`✅ Price record ensured: ${stripePrice.id}`);
+  } catch (error) {
+    console.error(`❌ Failed to ensure price/product records:`, error);
+    // Continue anyway - the upsert might still work if records exist
+  }
 
   // Helper function to safely convert timestamps
   const safeToDateTime = (timestamp: any, fieldName: string) => {
