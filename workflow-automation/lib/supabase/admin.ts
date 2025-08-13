@@ -115,18 +115,52 @@ export const manageSubscriptionStatusChange = async (
   customerId: string,
   createAction = false
 ) => {
+  console.log(`🔄 Managing subscription: ${subscriptionId} for customer: ${customerId}`);
+  
   const { data: customerData, error: noCustomerError } = await supabaseAdmin
     .from('customers')
     .select('id')
     .eq('stripe_customer_id', customerId)
     .single();
-  if (noCustomerError) throw noCustomerError;
+  if (noCustomerError) {
+    console.error(`❌ Customer lookup failed:`, noCustomerError);
+    throw noCustomerError;
+  }
 
   const { id: uuid } = customerData!;
+  console.log(`✅ Found customer UUID: ${uuid}`);
 
   const subscription = await stripe.subscriptions.retrieve(subscriptionId, {
     expand: ['default_payment_method'],
   });
+  
+  console.log(`✅ Retrieved subscription:`, {
+    id: subscription.id,
+    status: subscription.status,
+    current_period_start: (subscription as any).current_period_start,
+    current_period_end: (subscription as any).current_period_end,
+    cancel_at: subscription.cancel_at,
+    canceled_at: subscription.canceled_at,
+    trial_start: subscription.trial_start,
+    trial_end: subscription.trial_end,
+    ended_at: subscription.ended_at
+  });
+
+  // Helper function to safely convert timestamps
+  const safeToDateTime = (timestamp: any, fieldName: string) => {
+    if (!timestamp || timestamp === null || timestamp === undefined) {
+      console.log(`⚠️ ${fieldName} is null/undefined, skipping`);
+      return null;
+    }
+    try {
+      const result = toDateTime(timestamp).toISOString();
+      console.log(`✅ Converted ${fieldName}: ${timestamp} -> ${result}`);
+      return result;
+    } catch (error) {
+      console.error(`❌ Failed to convert ${fieldName}:`, timestamp, error);
+      return null;
+    }
+  };
 
   const subscriptionData = {
     id: subscription.id,
@@ -136,36 +170,26 @@ export const manageSubscriptionStatusChange = async (
     price_id: subscription.items.data[0].price.id,
     quantity: subscription.items.data[0].quantity,
     cancel_at_period_end: subscription.cancel_at_period_end,
-    cancel_at: subscription.cancel_at
-      ? toDateTime(subscription.cancel_at)?.toISOString() || null
-      : null,
-    canceled_at: subscription.canceled_at
-      ? toDateTime(subscription.canceled_at)?.toISOString() || null
-      : null,
-    current_period_start: toDateTime(
-      (subscription as any).current_period_start
-    )?.toISOString() || null,
-    current_period_end: toDateTime(
-      (subscription as any).current_period_end
-    )?.toISOString() || null,
-    ended_at: subscription.ended_at
-      ? toDateTime(subscription.ended_at)?.toISOString() || null
-      : null,
-    trial_start: subscription.trial_start
-      ? toDateTime(subscription.trial_start)?.toISOString() || null
-      : null,
-    trial_end: subscription.trial_end
-      ? toDateTime(subscription.trial_end)?.toISOString() || null
-      : null,
+    cancel_at: safeToDateTime(subscription.cancel_at, 'cancel_at'),
+    canceled_at: safeToDateTime(subscription.canceled_at, 'canceled_at'),
+    current_period_start: safeToDateTime((subscription as any).current_period_start, 'current_period_start'),
+    current_period_end: safeToDateTime((subscription as any).current_period_end, 'current_period_end'),
+    ended_at: safeToDateTime(subscription.ended_at, 'ended_at'),
+    trial_start: safeToDateTime(subscription.trial_start, 'trial_start'),
+    trial_end: safeToDateTime(subscription.trial_end, 'trial_end'),
   };
+
+  console.log(`🔄 Upserting subscription data:`, subscriptionData);
 
   const { error } = await supabaseAdmin
     .from('subscriptions')
     .upsert([subscriptionData]);
-  if (error) throw error;
-  console.log(
-    `Inserted/updated subscription [${subscription.id}] for user [${uuid}]`
-  );
+  if (error) {
+    console.error(`❌ Subscription upsert failed:`, error);
+    throw error;
+  }
+  
+  console.log(`✅ Inserted/updated subscription [${subscription.id}] for user [${uuid}]`);
 
   if (createAction && subscription.default_payment_method && uuid)
     await copyBillingDetailsToCustomer(
