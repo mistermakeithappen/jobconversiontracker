@@ -22,8 +22,8 @@ BEGIN
   org_slug := lower(regexp_replace(org_name, '[^a-z0-9]+', '-', 'g'));
   org_slug := regexp_replace(org_slug, '^-+|-+$', '', 'g');
   
-  -- Ensure slug is unique
-  WHILE EXISTS (SELECT 1 FROM organizations WHERE slug = org_slug) LOOP
+  -- Ensure slug is unique (qualify schema)
+  WHILE EXISTS (SELECT 1 FROM public.organizations WHERE slug = org_slug) LOOP
     org_slug := org_slug || '-' || substr(gen_random_uuid()::text, 1, 8);
   END LOOP;
 
@@ -38,10 +38,10 @@ BEGIN
 
   -- Only create organization if user doesn't have one
   IF NOT EXISTS (
-    SELECT 1 FROM organization_members WHERE user_id = new.id
+    SELECT 1 FROM public.organization_members WHERE user_id = new.id
   ) THEN
     -- Create organization
-    INSERT INTO organizations (
+    INSERT INTO public.organizations (
       name,
       slug,
       subscription_status,
@@ -58,7 +58,7 @@ BEGIN
     RETURNING id INTO org_id;
 
     -- Add user as owner
-    INSERT INTO organization_members (
+    INSERT INTO public.organization_members (
       organization_id,
       user_id,
       role,
@@ -76,7 +76,7 @@ BEGIN
     );
 
     -- Update organization user count
-    UPDATE organizations 
+    UPDATE public.organizations 
     SET current_users = 1
     WHERE id = org_id;
   END IF;

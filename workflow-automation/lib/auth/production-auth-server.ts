@@ -17,45 +17,6 @@ export function getServiceSupabase() {
 
 export async function getAuthUser(request?: NextRequest) {
   try {
-    // First, try to get auth from Authorization header
-    if (request) {
-      const authHeader = request.headers.get('authorization');
-      if (authHeader && authHeader.startsWith('Bearer ')) {
-        const token = authHeader.substring(7);
-        
-        // Create a Supabase client with the access token
-        const supabase = createClient(
-          process.env.NEXT_PUBLIC_SUPABASE_URL!,
-          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-          {
-            global: {
-              headers: {
-                Authorization: `Bearer ${token}`
-              }
-            },
-            auth: {
-              persistSession: false,
-              autoRefreshToken: false
-            }
-          }
-        );
-        
-        // Get the user from this authenticated client
-        const { data: { user }, error } = await supabase.auth.getUser();
-        
-        if (!error && user) {
-          console.log('Auth header user found:', user.id, user.email);
-          return { 
-            userId: user.id, 
-            user: user, 
-            error: null 
-          };
-        } else {
-          console.error('Auth header validation failed:', error);
-        }
-      }
-    }
-    
     // Fall back to cookie-based auth
     const cookieStore = await cookies();
     const authCookie = cookieStore.get('supabase-auth-token');

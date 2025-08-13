@@ -4,10 +4,12 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AlertCircle, Trash2 } from 'lucide-react';
 import { useUser } from '@/hooks/useUser';
+import { postData } from '@/lib/utils/helpers';
+import { Button } from '@/components/ui/button';
 
 export default function AccountSettingsPage() {
   const router = useRouter();
-  const { profile } = useUser();
+  const { user } = useUser();
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [password, setPassword] = useState('');
   const [confirmText, setConfirmText] = useState('');
@@ -58,11 +60,11 @@ export default function AccountSettingsPage() {
         <div className="space-y-3">
           <div>
             <label className="text-sm font-medium text-gray-500">Email</label>
-            <p className="text-gray-900">{profile?.email || 'Loading...'}</p>
+            <p className="text-gray-900">{user?.email || 'Loading...'}</p>
           </div>
           <div>
             <label className="text-sm font-medium text-gray-500">Full Name</label>
-            <p className="text-gray-900">{profile?.full_name || 'Loading...'}</p>
+            <p className="text-gray-900">{user?.user_metadata.full_name || 'Loading...'}</p>
           </div>
         </div>
       </div>

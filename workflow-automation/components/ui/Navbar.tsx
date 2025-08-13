@@ -12,6 +12,7 @@ const navItems = [
   { href: '/chatbot', label: 'Chatbot', icon: MessageCircle },
   { href: '/integrations', label: 'Integrations', icon: Plug },
   { href: '/test-receipt-ai', label: 'AI Receipt Test', icon: Camera },
+  { href: '/pricing', label: 'Pricing', icon: DollarSign },
 ];
 
 export default function Navbar() {

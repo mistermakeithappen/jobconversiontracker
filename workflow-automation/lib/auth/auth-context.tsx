@@ -2,12 +2,9 @@
 
 import { createContext, useContext, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-
-interface User {
-  id: string;
-  email: string;
-  fullName: string;
-}
+import { createBrowserClient } from '@supabase/ssr';
+import { Database } from '@/types/supabase';
+import { Session, User } from '@supabase/supabase-js';
 
 interface Organization {
   id: string;
@@ -41,56 +38,46 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
+  const supabase = createBrowserClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
 
-  // Check authentication status on mount
   useEffect(() => {
-    checkAuth();
-  }, []);
-
-  const checkAuth = async () => {
-    try {
-      let response = await fetch('/api/auth/me');
-      
-      // If we get a 401, try to refresh the token
-      if (response.status === 401 || response.status === 403) {
-        const refreshResponse = await fetch('/api/auth/refresh', {
-          method: 'POST'
-        });
-        
-        if (refreshResponse.ok) {
-          // Retry the original request
-          response = await fetch('/api/auth/me');
-        }
-      }
-      
-      if (response.ok) {
-        const data = await response.json();
-        setUser(data.user);
-        setOrganization(data.organization);
-      }
-    } catch (err) {
-      console.error('Auth check failed:', err);
-    } finally {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      setUser(session?.user ?? null);
       setLoading(false);
-    }
-  };
+
+      if (session?.user) {
+        fetch('/api/auth/me-simple')
+          .then((res) => res.json())
+          .then((data) => {
+            if (data.organization) {
+              setOrganization(data.organization);
+            }
+          });
+      } else {
+        setOrganization(null);
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [router, supabase]);
 
   const login = async (email: string, password: string) => {
     setError(null);
     try {
-      const response = await fetch('/api/auth/login-production', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
       });
 
-      const data = await response.json();
+      if (error) throw error;
 
-      if (!response.ok) {
-        throw new Error(data.error || 'Login failed');
-      }
-
-      await checkAuth();
       router.push('/ghl');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
@@ -100,7 +87,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = async () => {
     try {
-      await fetch('/api/auth/logout', { method: 'POST' });
+      await supabase.auth.signOut();
       setUser(null);
       setOrganization(null);
       router.push('/login');
@@ -112,19 +99,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signup = async (data: SignupData) => {
     setError(null);
     try {
-      const response = await fetch('/api/auth/signup-production', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
+      const { error } = await supabase.auth.signUp({
+        email: data.email,
+        password: data.password,
+        options: {
+          data: {
+            full_name: data.fullName,
+            organization_name: data.organizationName,
+          },
+        },
       });
 
-      const result = await response.json();
+      if (error) throw error;
 
-      if (!response.ok) {
-        throw new Error(result.error || 'Signup failed');
-      }
-
-      await checkAuth();
       router.push('/ghl');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Signup failed');
@@ -133,15 +120,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{
-      user,
-      organization,
-      loading,
-      error,
-      login,
-      logout,
-      signup,
-    }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        organization,
+        loading,
+        error,
+        login,
+        logout,
+        signup,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
