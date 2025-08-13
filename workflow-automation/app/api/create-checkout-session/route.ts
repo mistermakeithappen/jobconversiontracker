@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { stripe } from '@/lib/stripe/server';
-import { createOrRetrieveCustomer } from '@/lib/supabase/admin';
+import { createOrRetrieveCustomer, getServiceSupabase } from '@/lib/supabase/admin';
 import { getURL } from '@/lib/utils/helpers';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
@@ -10,25 +10,7 @@ export async function POST(req: Request) {
     const { price, quantity = 1, metadata = {} } = await req.json();
 
     try {
-      const cookieStore = await cookies();
-      const supabase = createServerClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        {
-          cookies: {
-            get(name: string) {
-              return cookieStore.get(name)?.value;
-            },
-            set(name: string, value: string, options) {
-              cookieStore.set(name, value, options);
-            },
-            remove(name: string, options) {
-              cookieStore.set(name, '', options);
-            },
-          },
-        }
-      );
-
+      const supabase = getServiceSupabase();
       const {
         data: { user },
       } = await supabase.auth.getUser();
@@ -57,7 +39,7 @@ export async function POST(req: Request) {
         subscription_data: {
           metadata,
         },
-        success_url: `${getURL()}/account`,
+        success_url: `${getURL()}/settings/account`,
         cancel_url: `${getURL()}/`,
       });
 

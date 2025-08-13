@@ -78,11 +78,11 @@ export default function Navbar() {
                 className="flex items-center space-x-2 p-2 rounded-lg hover:bg-gray-50 transition-colors"
               >
                 <div className="w-9 h-9 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center text-white text-sm font-semibold shadow-sm">
-                  {user?.fullName ? user.fullName.charAt(0).toUpperCase() : 'U'}
+                  {user?.user_metadata?.full_name ? user.user_metadata.full_name.charAt(0).toUpperCase() : 'U'}
                 </div>
                 <div className="hidden sm:block text-left">
                   <p className="text-sm font-medium text-gray-900">
-                    {loading ? 'Loading...' : (user?.fullName || 'User')}
+                    {loading ? 'Loading...' : (user?.user_metadata?.full_name || 'User')}
                   </p>
                   <p className="text-xs text-gray-500">
                     {loading ? '...' : (user?.email || 'No email')}
@@ -97,7 +97,7 @@ export default function Navbar() {
               {userDropdownOpen && (
                 <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
                   <Link
-                    href="/settings"
+                    href="/settings/account"
                     onClick={() => setUserDropdownOpen(false)}
                     className="flex items-center space-x-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
                   >
@@ -105,12 +105,12 @@ export default function Navbar() {
                     <span>Settings</span>
                   </Link>
                   <Link
-                    href="/settings"
+                    href="/settings/billing"
                     onClick={() => setUserDropdownOpen(false)}
                     className="flex items-center space-x-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
                   >
-                    <User className="w-4 h-4" />
-                    <span>Profile</span>
+                    <CreditCard className="w-4 h-4" />
+                    <span>Billing</span>
                   </Link>
                   <hr className="my-1" />
                   <button

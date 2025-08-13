@@ -1,38 +1,43 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { AlertCircle, Trash2 } from 'lucide-react';
-import { useUser } from '@/hooks/useUser';
+import { useAuth } from '@/lib/auth/auth-context';
 import { postData } from '@/lib/utils/helpers';
+import { useRouter } from 'next/navigation';
+import { useState, useEffect } from 'react';
+import { AlertCircle, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 export default function AccountSettingsPage() {
   const router = useRouter();
-  const { user } = useUser();
+  const { user } = useAuth();
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [password, setPassword] = useState('');
-  const [confirmText, setConfirmText] = useState('');
-  const [deleting, setDeleting] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  const redirectToCustomerPortal = async () => {
+    try {
+      const response = await fetch('/api/auth/customer-portal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to redirect to customer portal');
+      }
+
+      window.location.href = data.url;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to redirect to customer portal');
+    }
+  };
 
   const handleDeleteAccount = async () => {
-    if (confirmText !== 'DELETE') {
-      setError('Please type DELETE to confirm');
-      return;
-    }
-
-    if (!password) {
-      setError('Please enter your password');
-      return;
-    }
-
-    setDeleting(true);
-    setError('');
-
+    setError(null);
     try {
       const response = await fetch('/api/auth/delete-account', {
-        method: 'DELETE',
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ password }),
       });
@@ -43,118 +48,85 @@ export default function AccountSettingsPage() {
         throw new Error(data.error || 'Failed to delete account');
       }
 
-      // Redirect to login after successful deletion
+      // You might want to redirect to a logged-out page or the homepage
       router.push('/login');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete account');
-      setDeleting(false);
     }
   };
 
   return (
-    <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <h1 className="text-2xl font-bold text-gray-900 mb-8">Account Settings</h1>
-
-      <div className="bg-white rounded-lg border border-gray-200 p-6 mb-8">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">Account Information</h2>
-        <div className="space-y-3">
+    <div className="p-8">
+      <h1 className="text-2xl font-semibold text-gray-900">Account Settings</h1>
+      <div className="mt-8">
+        <div className="space-y-4">
           <div>
             <label className="text-sm font-medium text-gray-500">Email</label>
             <p className="text-gray-900">{user?.email || 'Loading...'}</p>
           </div>
           <div>
             <label className="text-sm font-medium text-gray-500">Full Name</label>
-            <p className="text-gray-900">{user?.user_metadata.full_name || 'Loading...'}</p>
+            <p className="text-gray-900">{user?.user_metadata?.full_name || 'Loading...'}</p>
           </div>
         </div>
-      </div>
-
-      <div className="bg-red-50 rounded-lg border border-red-200 p-6">
-        <h2 className="text-lg font-semibold text-red-900 mb-4">Danger Zone</h2>
-        <div className="space-y-4">
-          <div>
-            <h3 className="text-sm font-medium text-red-900 mb-2">Delete Account</h3>
-            <p className="text-sm text-red-700 mb-4">
-              Once you delete your account, there is no going back. All your data will be permanently deleted.
-            </p>
-            <button
+        
+        <div className="mt-8">
+          <h2 className="text-xl font-semibold text-gray-900">Danger Zone</h2>
+          <div className="mt-4">
+            <Button
+              variant="destructive"
               onClick={() => setShowDeleteModal(true)}
-              className="inline-flex items-center space-x-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
             >
-              <Trash2 className="w-4 h-4" />
-              <span>Delete Account</span>
-            </button>
+              <Trash2 className="w-4 h-4 mr-2" />
+              Delete Account
+            </Button>
           </div>
         </div>
       </div>
 
-      {/* Delete Account Modal */}
       {showDeleteModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg max-w-md w-full p-6">
-            <div className="flex items-center space-x-2 text-red-600 mb-4">
-              <AlertCircle className="w-6 h-6" />
-              <h2 className="text-xl font-semibold">Delete Account</h2>
-            </div>
-            
-            <p className="text-gray-600 mb-6">
-              This action cannot be undone. This will permanently delete your account and remove your data from our servers.
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white p-8 rounded-lg shadow-2xl max-w-sm w-full">
+            <h2 className="text-xl font-bold text-gray-900">Are you sure?</h2>
+            <p className="mt-2 text-gray-600">
+              This action is permanent and cannot be undone. All your data will be
+              deleted.
             </p>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Enter your password to confirm
-                </label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                  placeholder="Your password"
-                />
+            <div className="mt-6">
+              <label
+                htmlFor="password"
+                className="text-sm font-medium text-gray-700"
+              >
+                Please enter your password to confirm
+              </label>
+              <input
+                type="password"
+                id="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+              />
+            </div>
+            {error && (
+              <div className="mt-4 flex items-center text-red-600">
+                <AlertCircle className="w-5 h-5 mr-2" />
+                <p>{error}</p>
               </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Type <span className="font-mono font-bold">DELETE</span> to confirm
-                </label>
-                <input
-                  type="text"
-                  value={confirmText}
-                  onChange={(e) => setConfirmText(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                  placeholder="Type DELETE"
-                />
-              </div>
-
-              {error && (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-                  <p className="text-sm text-red-600">{error}</p>
-                </div>
-              )}
-
-              <div className="flex space-x-3">
-                <button
-                  onClick={() => {
-                    setShowDeleteModal(false);
-                    setPassword('');
-                    setConfirmText('');
-                    setError('');
-                  }}
-                  disabled={deleting}
-                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleDeleteAccount}
-                  disabled={deleting || confirmText !== 'DELETE'}
-                  className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {deleting ? 'Deleting...' : 'Delete Account'}
-                </button>
-              </div>
+            )}
+            <div className="mt-6 flex justify-end space-x-4">
+              <Button
+                variant="ghost"
+                onClick={() => setShowDeleteModal(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={handleDeleteAccount}
+                disabled={!password}
+              >
+                Delete Account
+              </Button>
             </div>
           </div>
         </div>
