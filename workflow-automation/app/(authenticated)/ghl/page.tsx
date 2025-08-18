@@ -190,9 +190,10 @@ export default function GHLOverviewPage() {
       if (integration?.status !== 'connected') return;
 
       // Fetch various stats from different endpoints
+      const headers = await getAuthHeaders();
       const [contactsRes, opportunitiesRes] = await Promise.all([
-        fetch('/api/integrations/automake/contacts'),
-        fetch('/api/integrations/automake/opportunities')
+        fetch('/api/integrations/automake/contacts', { headers }),
+        fetch('/api/integrations/automake/opportunities', { headers })
       ]);
       
       if (contactsRes.ok) {
