@@ -79,6 +79,7 @@ export async function POST(request: NextRequest) {
 
     // 2. Create the organization
     let orgSlug = generateSlug(organizationName);
+    console.log('Creating organization with slug:', orgSlug);
     
     // Ensure slug is unique
     const { data: existingOrg, error: slugError } = await supabaseServiceClient
@@ -93,7 +94,17 @@ export async function POST(request: NextRequest) {
     
     if (existingOrg) {
       orgSlug = `${orgSlug}-${Date.now().toString(36)}`;
+      console.log('Slug already exists, using:', orgSlug);
     }
+
+    console.log('Inserting organization:', {
+      name: organizationName,
+      slug: orgSlug,
+      subscription_status: 'trial',
+      subscription_plan: 'free',
+      created_by: newUserId,
+      current_users: 1
+    });
 
     const { data: newOrg, error: orgError } = await supabaseServiceClient
       .from('organizations')
@@ -108,9 +119,21 @@ export async function POST(request: NextRequest) {
       .select('id')
       .single();
 
-    if (orgError || !newOrg) throw orgError || new Error("Failed to create organization.");
+    if (orgError || !newOrg) {
+      console.error('Organization creation failed:', orgError);
+      throw orgError || new Error("Failed to create organization.");
+    }
+    
+    console.log('Organization created successfully:', newOrg.id);
 
     // 3. Link the user to the organization as an 'owner'
+    console.log('Linking user to organization:', {
+      organization_id: newOrg.id,
+      user_id: newUserId,
+      role: 'owner',
+      status: 'active'
+    });
+
     const { error: memberError } = await supabaseServiceClient
       .from('organization_members')
       .insert({
@@ -121,7 +144,12 @@ export async function POST(request: NextRequest) {
         accepted_at: new Date().toISOString(),
       });
 
-    if (memberError) throw memberError;
+    if (memberError) {
+      console.error('Failed to link user to organization:', memberError);
+      throw memberError;
+    }
+    
+    console.log('User successfully linked to organization');
 
     // 4. Return a successful response
     return NextResponse.json({
