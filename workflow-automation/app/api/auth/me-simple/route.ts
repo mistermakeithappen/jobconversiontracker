@@ -1,33 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { getServiceSupabase } from '@/lib/auth/production-auth-server';
 
 export async function GET() {
   try {
     const cookieStore = await cookies();
-    const authCookie = cookieStore.get('supabase-auth-token');
     
-    if (!authCookie) {
-      return NextResponse.json(
-        { error: 'Not authenticated' },
-        { status: 401 }
-      );
-    }
-    
-    const supabase = createClient(
+    const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
-        global: {
-          headers: {
-            Authorization: `Bearer ${authCookie.value}`
-          }
+        cookies: {
+          get(name: string) {
+            return cookieStore.get(name)?.value;
+          },
         },
-        auth: {
-          persistSession: false,
-          autoRefreshToken: false
-        }
       }
     );
 
