@@ -17,7 +17,7 @@ export function getServiceSupabase() {
 
 export async function getAuthUser(request?: NextRequest) {
   try {
-    // Fall back to cookie-based auth
+    // Use custom cookie-based auth
     const cookieStore = await cookies();
     const authCookie = cookieStore.get('supabase-auth-token');
     const refreshCookie = cookieStore.get('supabase-refresh-token');
@@ -63,16 +63,9 @@ export async function getAuthUser(request?: NextRequest) {
       });
       
       if (!refreshError && sessionData?.session) {
-        // Update cookies with new tokens
-        const newAccessToken = sessionData.session.access_token;
-        const newRefreshToken = sessionData.session.refresh_token;
-        
         // Return the refreshed user data
         user = sessionData.user;
         error = null;
-        
-        // Note: In a production app, you'd want to update the cookies here
-        // But since we can't modify cookies in a GET request, the client should handle this
         console.log('Token refreshed successfully');
       } else {
         console.error('Token refresh failed:', refreshError);
