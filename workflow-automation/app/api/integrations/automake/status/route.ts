@@ -22,7 +22,14 @@ export async function GET(request: NextRequest) {
     const supabase = getServiceSupabase();
     
     if (!organization) {
-      return NextResponse.json({ error: 'No organization found' }, { status: 400 });
+      return NextResponse.json({ 
+        connected: false,
+        needsReconnection: false,
+        reconnectionReason: 'No organization found. Please set up your organization first.',
+        integrationId: null,
+        integration: null,
+        error: 'No organization found'
+      });
     }
     
     // Check if organization has GHL integration

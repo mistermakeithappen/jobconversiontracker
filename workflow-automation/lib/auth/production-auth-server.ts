@@ -1,3 +1,4 @@
+import { createServerClient } from '@supabase/ssr';
 import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 import { NextRequest } from 'next/server';
@@ -17,60 +18,28 @@ export function getServiceSupabase() {
 
 export async function getAuthUser(request?: NextRequest) {
   try {
-    // Use custom cookie-based auth
     const cookieStore = await cookies();
-    const authCookie = cookieStore.get('supabase-auth-token');
-    const refreshCookie = cookieStore.get('supabase-refresh-token');
     
-    if (!authCookie) {
-      return { userId: null, user: null, error: 'No auth cookie found' };
-    }
+    // Debug: Log all available cookies
+    console.log('Available cookies:', Array.from(cookieStore.getAll()).map(c => c.name));
     
-    // Create a Supabase client with the auth token
-    const supabase = createClient(
+    // Create a Supabase server client that can read cookies
+    const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
-        global: {
-          headers: {
-            Authorization: `Bearer ${authCookie.value}`
-          }
+        cookies: {
+          get(name: string) {
+            const value = cookieStore.get(name)?.value;
+            console.log(`Cookie ${name}:`, value ? 'found' : 'not found');
+            return value;
+          },
         },
-        auth: {
-          persistSession: false,
-          autoRefreshToken: false
-        }
       }
     );
 
     // Get the current user
-    let { data: { user }, error } = await supabase.auth.getUser();
-    
-    // If token is expired and we have a refresh token, try to refresh
-    if (error && error.message.includes('token is expired') && refreshCookie) {
-      console.log('Access token expired, attempting refresh...');
-      
-      // Create a new client to handle the refresh
-      const refreshSupabase = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-      );
-      
-      // Set the session with both tokens to trigger refresh
-      const { data: sessionData, error: refreshError } = await refreshSupabase.auth.setSession({
-        access_token: authCookie.value,
-        refresh_token: refreshCookie.value
-      });
-      
-      if (!refreshError && sessionData?.session) {
-        // Return the refreshed user data
-        user = sessionData.user;
-        error = null;
-        console.log('Token refreshed successfully');
-      } else {
-        console.error('Token refresh failed:', refreshError);
-      }
-    }
+    const { data: { user }, error } = await supabase.auth.getUser();
     
     if (error) {
       console.error('Auth user error:', error);
