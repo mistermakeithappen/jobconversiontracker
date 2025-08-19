@@ -681,10 +681,28 @@ export async function GET(request: NextRequest) {
                 paymentStructure
               });
               
-              if (paymentStructure && paymentStructure.commission_percentage) {
+              // Check if the user's payment type is commission-based AND has a commission percentage
+              const isCommissionBased = paymentStructure && 
+                paymentStructure.commission_percentage && 
+                paymentStructure.payment_type && 
+                ['commission_gross', 'commission_profit', 'hybrid'].includes(paymentStructure.payment_type);
+              
+              console.log('Commission eligibility check:', {
+                hasPaymentStructure: !!paymentStructure,
+                paymentType: paymentStructure?.payment_type,
+                commissionPercentage: paymentStructure?.commission_percentage,
+                isCommissionBased: isCommissionBased
+              });
+              
+              if (isCommissionBased) {
                 const structure = paymentStructure;
                 
                 if (existingAssignment && existingAssignment.length > 0) {
+                  // Determine commission type based on payment structure
+                  const commissionType = structure.payment_type === 'commission_gross' ? 'percentage_gross' :
+                                       structure.payment_type === 'commission_profit' ? 'percentage_profit' :
+                                       'percentage_profit'; // Default for hybrid
+                  
                   // Update existing assignment with new user
                   const { data: updatedAssignment, error: updateError } = await supabase
                     .from('commission_assignments')
@@ -692,7 +710,7 @@ export async function GET(request: NextRequest) {
                       ghl_user_id: opportunityData.assigned_to,
                       user_name: structure.ghl_user_name || assignedUserName,
                       user_email: structure.ghl_user_email,
-                      commission_type: 'percentage_profit', // Default to profit-based
+                      commission_type: commissionType,
                       base_rate: structure.commission_percentage, // Use actual percentage from payment structure
                       updated_at: new Date().toISOString()
                     })
@@ -705,6 +723,11 @@ export async function GET(request: NextRequest) {
                     console.log('Updated commission assignment:', updatedAssignment);
                   }
                 } else {
+                  // Determine commission type based on payment structure
+                  const commissionType = structure.payment_type === 'commission_gross' ? 'percentage_gross' :
+                                       structure.payment_type === 'commission_profit' ? 'percentage_profit' :
+                                       'percentage_profit'; // Default for hybrid
+                  
                   // Create new commission assignment for this opportunity
                   const { data: newAssignment, error: assignmentError } = await supabase
                     .from('commission_assignments')
@@ -716,11 +739,11 @@ export async function GET(request: NextRequest) {
                       ghl_user_id: opportunityData.assigned_to,
                       user_name: structure.ghl_user_name || assignedUserName,
                       user_email: structure.ghl_user_email,
-                      commission_type: 'percentage_profit', // Default to profit-based
+                      commission_type: commissionType,
                       base_rate: structure.commission_percentage, // Use actual percentage from payment structure
                       is_active: true,
                       is_disabled: false, // Start enabled by default
-                      notes: 'Auto-assigned based on opportunity assignment',
+                      notes: `Auto-assigned based on opportunity assignment (${structure.payment_type})`,
                       created_by: userId
                     })
                     .select();
@@ -732,7 +755,15 @@ export async function GET(request: NextRequest) {
                   }
                 }
               } else {
-                console.log('No payment structure found for user:', opportunityData.assigned_to);
+                console.log('No commission-eligible payment structure found for user:', {
+                  ghlUserId: opportunityData.assigned_to,
+                  reason: !paymentStructure ? 'No payment structure found' :
+                          !paymentStructure.commission_percentage ? 'No commission percentage set' :
+                          !paymentStructure.payment_type ? 'No payment type set' :
+                          'Payment type is not commission-based',
+                  paymentType: paymentStructure?.payment_type,
+                  commissionPercentage: paymentStructure?.commission_percentage
+                });
               }
             } else {
               console.log('Commission assignment already exists with correct user for opportunity:', opp.id);
