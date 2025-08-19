@@ -99,20 +99,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signup = async (data: SignupData) => {
     setError(null);
     try {
-      const { error } = await supabase.auth.signUp({
-        email: data.email,
-        password: data.password,
-        options: {
-          data: {
-            full_name: data.fullName,
-            organization_name: data.organizationName,
-          },
+      // Call our custom signup API route instead of Supabase Auth directly
+      const response = await fetch('/api/auth/signup-production', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
+        body: JSON.stringify({
+          email: data.email,
+          password: data.password,
+          fullName: data.fullName,
+          organizationName: data.organizationName,
+        }),
       });
 
-      if (error) throw error;
+      const result = await response.json();
 
-      router.push('/ghl');
+      if (!response.ok) {
+        throw new Error(result.error || 'Signup failed');
+      }
+
+      // If signup was successful, the user should now be able to sign in
+      // We'll redirect them to login since they need to confirm their email
+      router.push('/login?message=Account created successfully. Please check your email to confirm your account.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Signup failed');
       throw err;

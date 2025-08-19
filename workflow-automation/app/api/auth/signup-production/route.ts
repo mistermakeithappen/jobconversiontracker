@@ -1,15 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-// Helper to generate a URL-friendly slug from a name
-function generateSlug(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/&/g, 'and')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-}
-
 export async function POST(request: NextRequest) {
   let body;
   try {
@@ -35,123 +26,61 @@ export async function POST(request: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   );
 
-  const { data: authData, error: authError } = await supabaseAnonClient.auth.signUp({
-    email,
-    password,
-    options: {
-      data: {
-        full_name: fullName,
-        // We pass the organization name here so it can be used if needed,
-        // but we will primarily handle logic with the service client.
-        organization_name: organizationName,
-      }
-    }
-  });
-
-  if (authError || !authData.user) {
-    console.error('Supabase auth.signUp error:', authError);
-    return NextResponse.json(
-      { error: authError?.message || 'Failed to create user account.' },
-      { status: authError?.status || 500 }
-    );
-  }
-
-  const newUserId = authData.user.id;
-
-  // IMPORTANT: Use the service_role client to perform administrative tasks
-  // This client can bypass RLS policies.
-  const supabaseServiceClient = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
-
   try {
-    // 1. Create the user profile in public.users
-    const { error: userProfileError } = await supabaseServiceClient
-      .from('users')
-      .insert({
-        id: newUserId,
-        email: email,
-        full_name: fullName,
-      });
-
-    if (userProfileError) throw userProfileError;
-
-    // 2. Create the organization
-    let orgSlug = generateSlug(organizationName);
-    console.log('Creating organization with slug:', orgSlug);
-    
-    // Ensure slug is unique
-    const { data: existingOrg, error: slugError } = await supabaseServiceClient
-      .from('organizations')
-      .select('id')
-      .eq('slug', orgSlug)
-      .single();
-
-    if (slugError && slugError.code !== 'PGRST116') { // Ignore "no rows" error
-      throw slugError;
-    }
-    
-    if (existingOrg) {
-      orgSlug = `${orgSlug}-${Date.now().toString(36)}`;
-      console.log('Slug already exists, using:', orgSlug);
-    }
-
-    console.log('Inserting organization:', {
-      name: organizationName,
-      slug: orgSlug,
-      subscription_status: 'trial',
-      subscription_plan: 'free',
-      created_by: newUserId,
-      current_users: 1
+    // Sign up the user
+    const { data: authData, error: authError } = await supabaseAnonClient.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          full_name: fullName,
+          organization_name: organizationName,
+        }
+      }
     });
 
-    const { data: newOrg, error: orgError } = await supabaseServiceClient
-      .from('organizations')
-      .insert({
-        name: organizationName,
-        slug: orgSlug,
-        subscription_status: 'trial',
-        subscription_plan: 'free',
-        created_by: newUserId,
-        current_users: 1, // Start with 1 user
-      })
-      .select('id')
-      .single();
-
-    if (orgError || !newOrg) {
-      console.error('Organization creation failed:', orgError);
-      throw orgError || new Error("Failed to create organization.");
+    if (authError) {
+      console.error('Supabase auth.signUp error:', authError);
+      return NextResponse.json(
+        { error: authError.message || 'Failed to create user account.' },
+        { status: authError.status || 500 }
+      );
     }
-    
-    console.log('Organization created successfully:', newOrg.id);
 
-    // 3. Link the user to the organization as an 'owner'
-    console.log('Linking user to organization:', {
-      organization_id: newOrg.id,
-      user_id: newUserId,
-      role: 'owner',
-      status: 'active'
-    });
-
-    const { error: memberError } = await supabaseServiceClient
-      .from('organization_members')
-      .insert({
-        organization_id: newOrg.id,
-        user_id: newUserId,
-        role: 'owner',
-        status: 'active',
-        accepted_at: new Date().toISOString(),
-      });
-
-    if (memberError) {
-      console.error('Failed to link user to organization:', memberError);
-      throw memberError;
+    if (!authData.user) {
+      return NextResponse.json(
+        { error: 'User creation failed - no user data returned.' },
+        { status: 500 }
+      );
     }
-    
-    console.log('User successfully linked to organization');
 
-    // 4. Return a successful response
+    const newUserId = authData.user.id;
+
+    // Use the service_role client to perform administrative tasks
+    const supabaseServiceClient = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+
+    // Create user profile and organization
+    const createResult = await createUserProfileAndOrganization(
+      supabaseServiceClient, 
+      newUserId, 
+      email, 
+      fullName, 
+      organizationName
+    );
+
+    if (!createResult.success) {
+      // Clean up the auth user if profile creation fails
+      await supabaseServiceClient.auth.admin.deleteUser(newUserId);
+      return NextResponse.json(
+        { error: createResult.error || 'Failed to create user profile. Please try again.' },
+        { status: 500 }
+      );
+    }
+
+    // Return a successful response
     return NextResponse.json({
       user: {
         id: authData.user.id,
@@ -160,18 +89,125 @@ export async function POST(request: NextRequest) {
       },
       session: authData.session,
       success: true,
-      message: 'Account created successfully. Please check your email to confirm your account.',
+      message: 'Account created successfully. You can now sign in.',
     });
 
   } catch (error: any) {
-    // If any step after auth fails, attempt to delete the auth user to prevent orphans
-    console.error('Error in post-auth user setup:', error);
-    await supabaseServiceClient.auth.admin.deleteUser(newUserId);
-    console.error('Cleaned up orphaned auth user.');
-    
+    console.error('Error in signup process:', error);
     return NextResponse.json(
-      { error: 'An error occurred during account setup. Please try again.' },
+      { error: 'An error occurred during account creation. Please try again.' },
       { status: 500 }
     );
   }
+}
+
+// Function to create user profile and organization
+async function createUserProfileAndOrganization(
+  supabaseServiceClient: any,
+  userId: string,
+  email: string,
+  fullName: string,
+  organizationName: string
+) {
+  try {
+    // 1. Create the user profile in public.users
+    const { error: userProfileError } = await supabaseServiceClient
+      .from('users')
+      .insert({
+        id: userId,
+        email: email,
+        full_name: fullName,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      });
+
+    if (userProfileError) {
+      console.error('Failed to create user profile:', userProfileError);
+      return { success: false, error: userProfileError.message };
+    }
+
+    // 2. Create the organization
+    const orgSlug = generateSlug(organizationName);
+    console.log('Creating organization with slug:', orgSlug);
+    
+    // Ensure slug is unique
+    let finalSlug = orgSlug;
+    let attempt = 1;
+    while (attempt <= 5) { // Limit attempts to prevent infinite loop
+      const { data: existingOrg, error: slugError } = await supabaseServiceClient
+        .from('organizations')
+        .select('id')
+        .eq('slug', finalSlug)
+        .single();
+
+      if (slugError && slugError.code !== 'PGRST116') { // Ignore "no rows" error
+        console.error('Error checking slug uniqueness:', slugError);
+        return { success: false, error: 'Failed to check organization slug uniqueness' };
+      }
+      
+      if (!existingOrg) {
+        break; // Slug is unique
+      }
+      
+      // Slug exists, generate a new one
+      finalSlug = `${orgSlug}-${Date.now().toString(36)}-${attempt}`;
+      attempt++;
+    }
+
+    const { data: newOrg, error: orgError } = await supabaseServiceClient
+      .from('organizations')
+      .insert({
+        name: organizationName,
+        slug: finalSlug,
+        subscription_status: 'trial',
+        subscription_plan: 'free',
+        created_by: userId,
+        current_users: 1,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })
+      .select('id')
+      .single();
+
+    if (orgError || !newOrg) {
+      console.error('Organization creation failed:', orgError);
+      return { success: false, error: orgError?.message || 'Failed to create organization' };
+    }
+
+    // 3. Link the user to the organization as an 'owner'
+    const { error: memberError } = await supabaseServiceClient
+      .from('organization_members')
+      .insert({
+        organization_id: newOrg.id,
+        user_id: userId,
+        role: 'owner',
+        custom_permissions: '{}',
+        status: 'active',
+        invited_at: new Date().toISOString(),
+        accepted_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      });
+
+    if (memberError) {
+      console.error('Failed to link user to organization:', memberError);
+      return { success: false, error: memberError.message };
+    }
+
+    console.log('User profile and organization created successfully');
+    return { success: true };
+
+  } catch (error: any) {
+    console.error('Error in user profile and organization creation:', error);
+    return { success: false, error: error.message || 'Unknown error occurred' };
+  }
+}
+
+// Helper to generate a URL-friendly slug from a name
+function generateSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/&/g, 'and')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
 }
