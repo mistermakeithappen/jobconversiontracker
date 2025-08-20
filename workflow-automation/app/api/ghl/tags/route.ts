@@ -2,11 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth, getServiceSupabase } from '@/lib/auth/production-auth-server';
 import { getUserOrganization } from '@/lib/auth/organization-helper';
 import { createGHLClient } from '@/lib/integrations/gohighlevel/client';
+import { requireSubscription } from '@/lib/utils/subscription-utils';
 
 export async function GET(request: NextRequest) {
   try {
+    // Check subscription before proceeding
+    const { userId } = await requireSubscription(request);
     const supabase = getServiceSupabase();
-    const { userId } = await requireAuth(request);
     
     const organization = await getUserOrganization(userId);
     if (!organization) {

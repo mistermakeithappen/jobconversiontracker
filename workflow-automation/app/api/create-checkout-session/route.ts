@@ -8,7 +8,10 @@ import { Database } from '@/types/supabase';
 
 export async function POST(req: Request) {
   if (req.method === 'POST') {
-    const { price, quantity = 1, metadata = {} } = await req.json();
+    const { price, priceId, quantity = 1, metadata = {} } = await req.json();
+    
+    // Handle both price object and priceId string for backward compatibility
+    const actualPriceId = price?.id || priceId;
 
     try {
       const cookieStore = await cookies();
@@ -32,6 +35,10 @@ export async function POST(req: Request) {
         return new NextResponse('User not found', { status: 404 });
       }
 
+      if (!actualPriceId) {
+        return new NextResponse('Price ID is required', { status: 400 });
+      }
+
       const customer = await createOrRetrieveCustomer({
         uuid: user.id || '',
         email: user.email || '',
@@ -43,7 +50,7 @@ export async function POST(req: Request) {
         customer,
         line_items: [
           {
-            price: price.id,
+            price: actualPriceId,
             quantity,
           },
         ],
@@ -52,11 +59,11 @@ export async function POST(req: Request) {
         subscription_data: {
           metadata,
         },
-        success_url: `${getURL()}settings/billing`,
-        cancel_url: `${getURL()}pricing`,
+        success_url: `${getURL()}ghl?upgraded=true`,
+        cancel_url: `${getURL()}ghl`,
       });
 
-      return NextResponse.json({ sessionId: session.id });
+      return NextResponse.json({ url: session.url, sessionId: session.id });
     } catch (err: any) {
       console.error('Error creating checkout session:', err);
       return new NextResponse(`Something went wrong: ${err.message}`, { status: 500 });

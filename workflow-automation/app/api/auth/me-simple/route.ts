@@ -53,7 +53,10 @@ export async function GET() {
         organizations!inner(
           id,
           name,
-          slug
+          slug,
+          subscription_status,
+          subscription_plan,
+          trial_ends_at
         )
       `)
       .eq('user_id', user.id)
@@ -82,6 +85,9 @@ export async function GET() {
         name: orgMember.organizations[0].name,
         slug: orgMember.organizations[0].slug,
         role: orgMember.role,
+        subscription_status: orgMember.organizations[0].subscription_status,
+        subscription_plan: orgMember.organizations[0].subscription_plan,
+        trial_ends_at: orgMember.organizations[0].trial_ends_at,
       },
     });
   } catch (error: any) {
@@ -130,7 +136,10 @@ export async function POST(request: NextRequest) {
         organizations!inner(
           id,
           name,
-          slug
+          slug,
+          subscription_status,
+          subscription_plan,
+          trial_ends_at
         )
       `)
       .eq('user_id', userId)
@@ -159,6 +168,9 @@ export async function POST(request: NextRequest) {
         name: orgMember.organizations[0].name,
         slug: orgMember.organizations[0].slug,
         role: orgMember.role,
+        subscription_status: orgMember.organizations[0].subscription_status,
+        subscription_plan: orgMember.organizations[0].subscription_plan,
+        trial_ends_at: orgMember.organizations[0].trial_ends_at,
       },
     });
   } catch (error: any) {

@@ -11,6 +11,9 @@ import {
   Settings, 
   BarChart3 
 } from 'lucide-react';
+import { useSubscription } from '@/hooks/useSubscription';
+import { PaywallBanner } from '@/components/ui/PaywallBanner';
+import { useState, useEffect } from 'react';
 
 const ghlNavItems = [
   { 
@@ -57,13 +60,43 @@ export default function GHLLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const { hasActiveSubscription, loading, trialEnded, subscriptionStatus } = useSubscription();
+  const [showPaywallBanner, setShowPaywallBanner] = useState(false);
   
   // Use full width for opportunities page content only
   const isOpportunitiesPage = pathname === '/ghl/opportunities';
 
+  useEffect(() => {
+    console.log('🔄 Layout banner effect:', { loading, hasActiveSubscription });
+    
+    // Always update banner state, even during loading
+    if (!loading) {
+      setShowPaywallBanner(!hasActiveSubscription);
+    }
+    
+    // Also show banner immediately if we know subscription is false 
+    if (!loading && !hasActiveSubscription) {
+      setShowPaywallBanner(true);
+    }
+  }, [hasActiveSubscription, loading, pathname]); // Added pathname to trigger on navigation
+
   return (
-    <div className="px-4 sm:px-6 lg:px-8 py-8">
-      <div className="max-w-7xl mx-auto mb-8">
+    <div className={`${showPaywallBanner ? '' : 'py-8'}`}>
+      {/* Paywall Banner */}
+      {showPaywallBanner && !loading && (
+        <PaywallBanner
+          message={trialEnded 
+            ? "Your trial has expired. Upgrade to continue using GHL services." 
+            : "Upgrade to access full GoHighLevel integration features."
+          }
+          trialEnded={trialEnded}
+          onDismiss={() => {}} // Make non-dismissible
+          dismissible={false}
+        />
+      )}
+      
+      <div className={`px-4 sm:px-6 lg:px-8 ${showPaywallBanner ? 'pt-6 pb-8' : ''}`}>
+        <div className="max-w-7xl mx-auto mb-8">
         <div className="flex items-center space-x-3 mb-4">
           <div className="w-10 h-10 bg-gradient-to-br from-orange-500 to-red-600 rounded-lg flex items-center justify-center">
             <Building2 className="w-6 h-6 text-white" />
@@ -102,10 +135,11 @@ export default function GHLLayout({
           </nav>
         </div>
       </div>
-
+      
       <div className={isOpportunitiesPage ? "w-full" : "max-w-7xl mx-auto space-y-6"}>
         {children}
       </div>
+    </div>
     </div>
   );
 }

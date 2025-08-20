@@ -2,13 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServiceSupabase } from '@/lib/supabase/client';
 import { requireAuth } from '@/lib/auth/production-auth-server';
 import { getUserOrganization } from '@/lib/auth/organization-helper';
+import { requireSubscription } from '@/lib/utils/subscription-utils';
 
 export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
-    const { userId } = await requireAuth(request);
+    // Check subscription before proceeding
+    const { userId } = await requireSubscription(request);
     const organization = await getUserOrganization(userId);
     
     if (!organization) {
