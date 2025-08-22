@@ -1,19 +1,37 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServiceSupabase } from '@/lib/auth/production-auth-server';
-import { requireAuth } from '@/lib/auth/production-auth-server';
+import { getServiceSupabase, getAuthUser } from '@/lib/auth/production-auth-server';
 import { getUserOrganization } from '@/lib/auth/organization-helper';
 import { createGHLClient } from '@/lib/integrations/gohighlevel/client';
 import { encrypt } from '@/lib/utils/encryption';
 
-const supabase = getServiceSupabase();
-
 export async function GET(request: NextRequest) {
   try {
-    const { userId } = await requireAuth(request);
+    console.log('Opportunities endpoint called');
+    const supabase = getServiceSupabase();
+    console.log('Supabase client created');
+    
+    const authResult = await getAuthUser(request);
+    console.log('Auth result:', authResult);
+    if (!authResult || !authResult.userId) {
+      console.error('No auth user found in opportunities endpoint');
+      return NextResponse.json({ 
+        opportunities: [],
+        pipelines: [],
+        total: 0,
+        message: 'Authentication required'
+      }, { status: 401 });
+    }
+    
+    const userId = authResult.userId;
     const organization = await getUserOrganization(userId);
     
     if (!organization) {
-      return NextResponse.json({ error: 'No organization found' }, { status: 401 });
+      return NextResponse.json({ 
+        opportunities: [],
+        pipelines: [],
+        total: 0,
+        message: 'No organization found'
+      });
     }
 
     const searchParams = request.nextUrl.searchParams;
@@ -34,43 +52,16 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'GoHighLevel not connected' }, { status: 400 });
     }
     
-    // Check if we have a locationId, if not, we need to fetch it first
+    // If no locationId, return empty data instead of error
     if (!integration.config?.locationId) {
-      console.log('No locationId found, attempting to fetch locations first');
-      
-      // Call the locations endpoint to get and set the locationId
-      const locationsResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/integrations/automake/locations`, {
-        headers: {
-          'Cookie': request.headers.get('cookie') || ''
-        }
+      console.log('No locationId found - returning empty data');
+      return NextResponse.json({ 
+        opportunities: [],
+        pipelines: [],
+        total: 0,
+        fromCache: false,
+        message: 'Please complete GoHighLevel setup to view opportunities'
       });
-      
-      if (!locationsResponse.ok) {
-        return NextResponse.json({ 
-          error: 'Unable to fetch location information. Please reconnect GoHighLevel.' 
-        }, { status: 400 });
-      }
-      
-      await locationsResponse.json(); // This updates the integration with locationId
-      
-      // Re-fetch the integration to get the updated locationId
-      const { data: updatedIntegration } = await supabase
-        .from('integrations')
-        .select('*')
-        .eq('organization_id', organization.organizationId)
-        .eq('type', 'gohighlevel')
-        .single();
-        
-      if (updatedIntegration) {
-        integration = updatedIntegration;
-      }
-      
-      // If still no locationId, we can't proceed
-      if (!integration.config?.locationId) {
-        return NextResponse.json({ 
-          error: 'No accessible locations found for this GoHighLevel account.' 
-        }, { status: 400 });
-      }
     }
     
     // If fromCache is true, load from database first
@@ -535,15 +526,27 @@ export async function GET(request: NextRequest) {
           const followers = opp.followerIds || opp.followers || opp.followersIds || [];
           const followersArray = Array.isArray(followers) ? followers : [];
           
+          // Build contact name safely
+          let contactName = 'Unknown Contact';
+          if (opp.contact?.name) {
+            contactName = opp.contact.name;
+          } else if (opp.contact?.firstName || opp.contact?.lastName) {
+            const firstName = opp.contact?.firstName || '';
+            const lastName = opp.contact?.lastName || '';
+            contactName = `${firstName} ${lastName}`.trim() || 'Unknown Contact';
+          } else if (opp.contact?.email) {
+            contactName = opp.contact.email;
+          }
+
           const opportunityData = {
             organization_id: organization.organizationId,
             opportunity_id: opp.id,
             title: opp.name || opp.title || 'Unnamed Opportunity',
-            contact_id: opp.contactId || opp.contact?.id || opp.contact_id,
-            contact_name: opp.contact?.name || opp.contact?.firstName + ' ' + opp.contact?.lastName || opp.contact?.email || 'Unknown Contact',
+            contact_id: opp.contactId || opp.contact?.id || opp.contact_id || null,
+            contact_name: contactName,
             contact_email: opp.contact?.email || null,
             contact_phone: opp.contact?.phone || null,
-            pipeline_id: opp.pipelineId || opp.pipeline_id,
+            pipeline_id: opp.pipelineId || opp.pipeline_id || null,
             pipeline_name: pipelineMap.get(opp.pipelineId || opp.pipeline_id) || 'Unknown Pipeline',
             stage: stageMap.get(opp.pipelineStageId || opp.pipeline_stage_id) || 'Unknown Stage',
             status: opp.status || 'open',
@@ -553,7 +556,7 @@ export async function GET(request: NextRequest) {
             followers_count: followersArray.length,
             total_expenses: 0,  // Will be calculated from receipts
             total_labor_cost: 0,  // Will be calculated from time entries
-            ghl_updated_at: opp.updatedAt || opp.dateUpdated || opp.updated_at,
+            ghl_updated_at: opp.updatedAt || opp.dateUpdated || opp.updated_at || null,
             last_synced_at: new Date().toISOString()
           };
           
@@ -566,8 +569,14 @@ export async function GET(request: NextRequest) {
           
           if (cacheError) {
             console.error('Error caching opportunity:', cacheError);
-            console.error('Opportunity data:', opportunityData);
-            throw cacheError;
+            console.error('Opportunity data being cached:', JSON.stringify(opportunityData, null, 2));
+            console.error('Cache error details:', {
+              code: cacheError.code,
+              message: cacheError.message,
+              details: cacheError.details,
+              hint: cacheError.hint
+            });
+            // Continue without throwing - we can still return the data
           }
           
           // Store assigned user name for commission assignment
@@ -1028,8 +1037,16 @@ export async function GET(request: NextRequest) {
         status: apiError.status
       });
       
-      if (apiError.message?.includes('401') || apiError.message?.includes('Unauthorized')) {
-        return NextResponse.json({ error: 'Authentication failed. Please reconnect GoHighLevel.' }, { status: 401 });
+      if (apiError.message?.includes('401') || apiError.message?.includes('Unauthorized') || 
+          apiError.message?.includes('invalid_grant') || apiError.message?.includes('Token refresh failed')) {
+        // Return empty data with a message instead of error for invalid tokens
+        return NextResponse.json({ 
+          opportunities: [],
+          pipelines: [],
+          total: 0,
+          message: 'GoHighLevel authentication expired. Please reconnect your account.',
+          requiresReconnect: true
+        });
       }
       
       return NextResponse.json({ 
