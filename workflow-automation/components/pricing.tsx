@@ -50,21 +50,10 @@ export default function Pricing({ products, session }: PricingProps) {
   const [priceIdLoading, setPriceIdLoading] = useState<string>();
   const { user, loading: isLoading } = useAuth();
 
-  // Debug auth state
-  console.log('🔍 Pricing component auth state:', {
-    user: user ? { id: user.id, email: user.email } : null,
-    isLoading,
-    session: session ? 'present' : 'null',
-    productsCount: products?.length || 0,
-    stripePriceId: process.env.NEXT_PUBLIC_STRIPE_PRICE_ID || 'NOT_SET',
-    priceIdLoading: priceIdLoading || 'NONE'
-  });
-
   // Force reset stuck state on component mount
   useEffect(() => {
     const timer = setTimeout(() => {
       if (priceIdLoading) {
-        console.log('🧹 Auto-clearing stuck loading state on mount');
         setPriceIdLoading(undefined);
       }
     }, 1000);
@@ -122,24 +111,19 @@ export default function Pricing({ products, session }: PricingProps) {
   })) : fallbackPlans;
 
   const handleCheckout = async (plan: any) => {
-    console.log('🛒 CHECKOUT CLICKED! Starting checkout for plan:', plan);
-    console.log('🛒 Current loading state:', { priceIdLoading, isLoading });
-    
+   
     // Get the price ID - either from Stripe data or fallback
     const priceId = plan.stripePrice?.id || process.env.NEXT_PUBLIC_STRIPE_PRICE_ID;
     
     if (!priceId) {
-      console.error('❌ No price ID available for checkout');
       alert('Checkout temporarily unavailable. Please try again later.');
       return;
     }
 
-    console.log('🔧 Setting loading state for priceId:', priceId);
     setPriceIdLoading(priceId);
     
     // Add timeout to prevent infinite loading
     const timeoutId = setTimeout(() => {
-      console.error('⏰ Checkout timeout - clearing loading state');
       setPriceIdLoading(undefined);
       alert('Checkout timed out. Please try again.');
     }, 30000); // 30 second timeout
@@ -147,17 +131,13 @@ export default function Pricing({ products, session }: PricingProps) {
     try {
       // Check authentication
       if (!user) {
-        console.log('🔒 User not authenticated, redirecting to signin');
+      
         clearTimeout(timeoutId);
         setPriceIdLoading(undefined);
         return router.push('/signin');
       }
 
-      console.log('💳 Creating checkout session with data:', {
-        priceId,
-        successUrl: window.location.origin + '/ghl?upgraded=true',
-        cancelUrl: window.location.origin + '/pricing'
-      });
+     
       
       // Use the corrected data format that matches our API
       const response = await postData({
@@ -169,17 +149,17 @@ export default function Pricing({ products, session }: PricingProps) {
         },
       });
 
-      console.log('✅ Checkout response received:', response);
+    
       clearTimeout(timeoutId);
 
       if (response.url) {
-        console.log('🚀 Redirecting to Stripe checkout:', response.url);
+       
         // Use direct redirect instead of Stripe redirect for better reliability
         window.location.href = response.url;
         // Don't clear loading state here - let the redirect handle it
         return;
       } else if (response.sessionId) {
-        console.log('🔄 Using Stripe.js redirect with sessionId:', response.sessionId);
+   
         // Fallback to Stripe redirect
         const stripe = await getStripe();
         if (stripe) {
@@ -196,7 +176,6 @@ export default function Pricing({ products, session }: PricingProps) {
         throw new Error('No checkout URL or session ID returned from API');
       }
     } catch (error) {
-      console.error('❌ Checkout error:', error);
       clearTimeout(timeoutId);
       setPriceIdLoading(undefined);
       
@@ -260,26 +239,6 @@ export default function Pricing({ products, session }: PricingProps) {
         </div>
 
         <div className="relative z-10 py-16 px-4 mx-auto max-w-screen-xl lg:py-24 lg:px-6">
-          {/* DEBUG: Test API connectivity */}
-          <div className="text-center mb-4">
-            <button
-              onClick={async () => {
-                console.log('🧪 Testing API connectivity...');
-                try {
-                  const response = await fetch('/api/check-env');
-                  console.log('✅ API test response:', await response.text());
-                  alert('API is reachable! Check console for details.');
-                } catch (error) {
-                  console.error('❌ API test failed:', error);
-                  alert('API test failed! Check console for details.');
-                }
-              }}
-              className="bg-yellow-500 text-white px-4 py-2 rounded text-sm"
-            >
-              🧪 Test API Connection
-            </button>
-          </div>
-
           {/* Header */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -345,10 +304,7 @@ export default function Pricing({ products, session }: PricingProps) {
                     <CardFooter className="p-10 pt-6">
                       <div className="w-full space-y-3">
                         <Button
-                          onClick={() => {
-                            console.log('🖱️ Button clicked! Event fired');
-                            handleCheckout(plan);
-                          }}
+                          onClick={() => handleCheckout(plan)}
                           disabled={isLoading || !!priceIdLoading}
                           className="w-full text-xl py-6 rounded-2xl font-semibold transition-all duration-300 bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:shadow-xl hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
@@ -361,24 +317,6 @@ export default function Pricing({ products, session }: PricingProps) {
                             return 'Get Started Now';
                           })()}
                         </Button>
-                        
-                        {/* Always show debug info for now */}
-                        <div className="text-xs text-gray-500 text-center">
-                          Debug: {isLoading ? 'Auth Loading' : priceIdLoading ? 'Processing' : 'Ready'} 
-                          {priceIdLoading && ` (${priceIdLoading.substring(0, 10)}...)`}
-                        </div>
-                        
-                        {/* Force reset button - always visible for debugging */}
-                        <button
-                          onClick={() => {
-                            console.log('🔧 Force reset of all loading states');
-                            setPriceIdLoading(undefined);
-                            alert('Loading state reset! Try clicking Get Started Now again.');
-                          }}
-                          className="w-full text-sm text-red-600 hover:text-red-800 underline py-1"
-                        >
-                          🔧 Force Reset (Debug)
-                        </button>
                       </div>
                     </CardFooter>
                   </Card>
