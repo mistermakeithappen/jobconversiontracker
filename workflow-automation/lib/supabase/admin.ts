@@ -27,13 +27,13 @@ export const upsertProductRecord = async (product: Stripe.Product) => {
 
   const { error } = await supabaseAdmin.from('products').upsert([productData]);
   if (error) throw error;
-  console.log(`Product inserted/updated: ${product.id}`);
+
 };
 
 export const upsertPriceRecord = async (price: Stripe.Price) => {
   const priceData: Price = {
     id: price.id,
-    product_id: typeof price.product === 'string' ? price.product : '',
+    product_id: typeof price.product === 'string' ? price.product : price.product.id,
     active: price.active,
     currency: price.currency,
     description: price.nickname ?? null,
@@ -47,7 +47,7 @@ export const upsertPriceRecord = async (price: Stripe.Price) => {
 
   const { error } = await supabaseAdmin.from('prices').upsert([priceData]);
   if (error) throw error;
-  console.log(`Price inserted/updated: ${price.id}`);
+
 };
 
 export const createOrRetrieveCustomer = async ({
@@ -74,7 +74,7 @@ export const createOrRetrieveCustomer = async ({
       .from('customers')
       .insert([{ id: uuid, stripe_customer_id: customer.id }]);
     if (supabaseError) throw supabaseError;
-    console.log(`New customer created and inserted for ${uuid}.`);
+
     return customer.id;
   }
   return data.stripe_customer_id;
@@ -100,14 +100,28 @@ export const copyBillingDetailsToCustomer = async (
         }
       : undefined,
   });
-  const { error } = await supabaseAdmin
-    .from('users')
-    .update({
-      billing_address: address ? { ...address } : null,
-      payment_method: { ...payment_method[payment_method.type] },
-    })
-    .eq('id', uuid);
-  if (error) throw error;
+  
+  // Update user table with billing details (now that columns exist)
+  try {
+    const { error } = await supabaseAdmin
+      .from('users')
+      .update({
+        billing_address: address ? { ...address } : null,
+        payment_method: { ...payment_method[payment_method.type] },
+      })
+      .eq('id', uuid);
+    
+    if (error) {
+      console.warn(`⚠️ Failed to update user billing details: ${error.message}`);
+      // Don't throw - Stripe customer update succeeded, which is most important
+    } else {
+
+    }
+  } catch (err) {
+    console.warn(`⚠️ User billing update error: ${err}`);
+  }
+  
+
 };
 
 export const manageSubscriptionStatusChange = async (
@@ -115,7 +129,7 @@ export const manageSubscriptionStatusChange = async (
   customerId: string,
   createAction = false
 ) => {
-  console.log(`🔄 Managing subscription: ${subscriptionId} for customer: ${customerId}`);
+
   
   const { data: customerData, error: noCustomerError } = await supabaseAdmin
     .from('customers')
@@ -128,46 +142,78 @@ export const manageSubscriptionStatusChange = async (
   }
 
   const { id: uuid } = customerData!;
-  console.log(`✅ Found customer UUID: ${uuid}`);
+
 
   const subscription = await stripe.subscriptions.retrieve(subscriptionId, {
     expand: ['default_payment_method', 'items.data.price.product'],
   });
   
-  console.log(`✅ Retrieved subscription:`, {
-    id: subscription.id,
-    status: subscription.status,
-    current_period_start: (subscription as any).current_period_start,
-    current_period_end: (subscription as any).current_period_end,
-    cancel_at: subscription.cancel_at,
-    canceled_at: subscription.canceled_at,
-    trial_start: subscription.trial_start,
-    trial_end: subscription.trial_end,
-    ended_at: subscription.ended_at
-  });
+
+
+
+
+  // Calculate billing periods from billing_cycle_anchor
+  const billingCycleAnchor = (subscription as any).billing_cycle_anchor;
+
+  // Calculate current period start and end from billing cycle anchor
+  let currentPeriodStart = null;
+  let currentPeriodEnd = null;
+  
+  if (billingCycleAnchor) {
+    // FIXED: billing_cycle_anchor is the subscription START date, not next billing date
+    // We need to calculate the NEXT billing date from the start date + intervals
+    
+    const subscriptionStartDate = new Date(billingCycleAnchor * 1000);
+    const priceInterval = subscription.items.data[0].price.recurring?.interval || 'month';
+    const intervalCount = subscription.items.data[0].price.recurring?.interval_count || 1;
+    
+    // Calculate the next billing date by adding intervals from start date
+    const nextBillingDate = new Date(subscriptionStartDate);
+    
+    // Add one billing period to get the next billing date  
+    if (priceInterval === 'month') {
+      nextBillingDate.setMonth(nextBillingDate.getMonth() + intervalCount);
+    } else if (priceInterval === 'year') {
+      nextBillingDate.setFullYear(nextBillingDate.getFullYear() + intervalCount);
+    } else if (priceInterval === 'day') {
+      nextBillingDate.setDate(nextBillingDate.getDate() + intervalCount);
+    } else if (priceInterval === 'week') {
+      nextBillingDate.setDate(nextBillingDate.getDate() + (intervalCount * 7));
+    }
+    
+    // Current period end is the next billing date
+    currentPeriodEnd = Math.floor(nextBillingDate.getTime() / 1000);
+    
+    // Current period start is the subscription start date
+    currentPeriodStart = billingCycleAnchor;
+    
+
+  }
+  
+
 
   // Ensure price and product records exist
   const priceItem = subscription.items.data[0];
   const stripePrice = priceItem.price;
   const stripeProduct = stripePrice.product as any;
 
-  console.log(`🔄 Ensuring price and product records exist for price: ${stripePrice.id}`);
+
 
   try {
     // First, ensure the product exists
     if (stripeProduct && typeof stripeProduct === 'object') {
       await upsertProductRecord(stripeProduct);
-      console.log(`✅ Product record ensured: ${stripeProduct.id}`);
+
     } else if (typeof stripeProduct === 'string') {
       // If product is just an ID, fetch it from Stripe
       const fullProduct = await stripe.products.retrieve(stripeProduct);
       await upsertProductRecord(fullProduct);
-      console.log(`✅ Product record ensured: ${fullProduct.id}`);
+
     }
 
     // Then, ensure the price exists
     await upsertPriceRecord(stripePrice);
-    console.log(`✅ Price record ensured: ${stripePrice.id}`);
+
   } catch (error) {
     console.error(`❌ Failed to ensure price/product records:`, error);
     // Continue anyway - the upsert might still work if records exist
@@ -176,13 +222,10 @@ export const manageSubscriptionStatusChange = async (
   // Helper function to safely convert timestamps
   const safeToDateTime = (timestamp: any, fieldName: string) => {
     if (!timestamp || timestamp === null || timestamp === undefined) {
-      console.log(`⚠️ ${fieldName} is null/undefined, skipping`);
       return null;
     }
     try {
-      const result = toDateTime(timestamp).toISOString();
-      console.log(`✅ Converted ${fieldName}: ${timestamp} -> ${result}`);
-      return result;
+      return toDateTime(timestamp).toISOString();
     } catch (error) {
       console.error(`❌ Failed to convert ${fieldName}:`, timestamp, error);
       return null;
@@ -199,14 +242,14 @@ export const manageSubscriptionStatusChange = async (
     cancel_at_period_end: subscription.cancel_at_period_end,
     cancel_at: safeToDateTime(subscription.cancel_at, 'cancel_at'),
     canceled_at: safeToDateTime(subscription.canceled_at, 'canceled_at'),
-    current_period_start: safeToDateTime((subscription as any).current_period_start, 'current_period_start'),
-    current_period_end: safeToDateTime((subscription as any).current_period_end, 'current_period_end'),
+    current_period_start: safeToDateTime(currentPeriodStart, 'current_period_start'),
+    current_period_end: safeToDateTime(currentPeriodEnd, 'current_period_end'),
     ended_at: safeToDateTime(subscription.ended_at, 'ended_at'),
     trial_start: safeToDateTime(subscription.trial_start, 'trial_start'),
     trial_end: safeToDateTime(subscription.trial_end, 'trial_end'),
   };
 
-  console.log(`🔄 Upserting subscription data:`, subscriptionData);
+
 
   const { error } = await supabaseAdmin
     .from('subscriptions')
@@ -216,7 +259,7 @@ export const manageSubscriptionStatusChange = async (
     throw error;
   }
   
-  console.log(`✅ Inserted/updated subscription [${subscription.id}] for user [${uuid}]`);
+
 
   if (createAction && subscription.default_payment_method && uuid)
     await copyBillingDetailsToCustomer(

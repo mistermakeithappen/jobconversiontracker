@@ -8,7 +8,15 @@ import { Database } from '@/types/supabase';
 
 export async function POST(req: Request) {
   if (req.method === 'POST') {
-    const { price, priceId, quantity = 1, metadata = {} } = await req.json();
+    const { price, priceId, quantity = 1, metadata = {}, successUrl, cancelUrl } = await req.json();
+    
+    console.log('💳 Create checkout session request:', { 
+      priceId, 
+      actualPriceId: price?.id || priceId,
+      successUrl,
+      cancelUrl,
+      quantity 
+    });
     
     // Handle both price object and priceId string for backward compatibility
     const actualPriceId = price?.id || priceId;
@@ -27,22 +35,45 @@ export async function POST(req: Request) {
         }
       );
 
+      console.log('🔐 Getting user from session...');
       const {
         data: { user },
+        error: userError
       } = await supabase.auth.getUser();
 
-      if (!user) {
-        return new NextResponse('User not found', { status: 404 });
+      if (userError) {
+        console.error('❌ User auth error:', userError);
+        return new NextResponse(`Authentication error: ${userError.message}`, { status: 401 });
       }
 
+      if (!user) {
+        console.error('❌ No user found in session');
+        return new NextResponse('User not found - please sign in', { status: 401 });
+      }
+
+      console.log('✅ User authenticated:', { id: user.id, email: user.email });
+
       if (!actualPriceId) {
+        console.error('❌ No price ID provided');
         return new NextResponse('Price ID is required', { status: 400 });
       }
 
+      console.log('🏷️ Using price ID:', actualPriceId);
+
+      console.log('👤 Creating or retrieving Stripe customer...');
       const customer = await createOrRetrieveCustomer({
         uuid: user.id || '',
         email: user.email || '',
       });
+
+      if (!customer) {
+        console.error('❌ Failed to create/retrieve customer');
+        return new NextResponse('Failed to create customer', { status: 500 });
+      }
+
+      console.log('✅ Customer ready:', customer);
+
+      console.log('🏪 Creating Stripe checkout session...');
 
       const session = await stripe.checkout.sessions.create({
         payment_method_types: ['card'],
@@ -59,9 +90,11 @@ export async function POST(req: Request) {
         subscription_data: {
           metadata,
         },
-        success_url: `${getURL()}ghl?upgraded=true`,
-        cancel_url: `${getURL()}ghl`,
+        success_url: successUrl || `${getURL()}ghl?upgraded=true`,
+        cancel_url: cancelUrl || `${getURL()}pricing`,
       });
+
+      console.log('✅ Checkout session created:', { id: session.id, url: session.url });
 
       return NextResponse.json({ url: session.url, sessionId: session.id });
     } catch (err: any) {

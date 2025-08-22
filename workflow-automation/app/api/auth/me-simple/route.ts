@@ -50,7 +50,7 @@ export async function GET() {
       .select(`
         role,
         custom_permissions,
-        organizations!inner(
+        organizations(
           id,
           name,
           slug,
@@ -133,7 +133,7 @@ export async function POST(request: NextRequest) {
       .select(`
         role,
         custom_permissions,
-        organizations!inner(
+        organizations(
           id,
           name,
           slug,
