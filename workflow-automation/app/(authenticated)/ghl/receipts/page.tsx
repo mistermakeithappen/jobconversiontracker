@@ -3,6 +3,9 @@
 import { useState, useEffect } from 'react';
 import { Receipt as ReceiptIcon, MessageSquare, Camera, Smartphone, RefreshCw, CheckCircle, Plus, TrendingUp, Eye, Calendar, DollarSign, Building, Check, User } from 'lucide-react';
 import Link from 'next/link';
+import { useSubscription } from '@/hooks/useSubscription';
+import { PaywallModal } from '@/components/ui/PaywallModal';
+import { ComingSoonBadge } from '@/components/ui/ComingSoonBadge';
 
 interface Receipt {
   id: string;
@@ -25,6 +28,7 @@ interface Receipt {
 }
 
 export default function GHLReceiptsPage() {
+  const { hasActiveSubscription, loading: subscriptionLoading, trialEnded } = useSubscription();
   const [connectionStatus, setConnectionStatus] = useState<'checking' | 'connected' | 'disconnected'>('checking');
   const [stats, setStats] = useState({
     totalReceipts: 0,
@@ -35,11 +39,96 @@ export default function GHLReceiptsPage() {
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [receiptsLoading, setReceiptsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'pending' | 'reimbursed' | 'company'>('pending');
+  const [showPaywallModal, setShowPaywallModal] = useState(false);
 
   useEffect(() => {
     checkConnectionStatus();
-    syncOpportunitiesAndFetchReceipts();
   }, []);
+
+  useEffect(() => {
+    // Check subscription status and show paywall if needed
+    if (!subscriptionLoading && !hasActiveSubscription) {
+      setShowPaywallModal(true);
+      return;
+    }
+    
+    if (hasActiveSubscription) {
+      syncOpportunitiesAndFetchReceipts();
+    }
+  }, [hasActiveSubscription, subscriptionLoading]);
+
+  // DEBUG: Show subscription values
+  console.log('🔍 RECEIPTS DEBUG:', {
+    subscriptionLoading,
+    hasActiveSubscription,
+    trialEnded,
+    shouldBlock: !subscriptionLoading && !hasActiveSubscription
+  });
+
+  // Don't show content if no subscription - BLOCK CONTENT
+  if (!subscriptionLoading && !hasActiveSubscription) {
+    return (
+      <div className="space-y-8">
+        <div className="bg-gradient-to-br from-yellow-50 to-orange-50 border-2 border-dashed border-yellow-300 rounded-2xl p-12 text-center">
+          <div className="w-20 h-20 bg-gradient-to-br from-yellow-400 to-yellow-600 rounded-full flex items-center justify-center mx-auto mb-6">
+            <ReceiptIcon className="w-10 h-10 text-white" />
+          </div>
+          <h2 className="text-2xl font-bold text-gray-900 mb-3">
+            {trialEnded ? 'Trial Expired' : 'Subscription Required'}
+          </h2>
+          <p className="text-lg text-gray-700 mb-6 max-w-2xl mx-auto">
+            {trialEnded 
+              ? 'Your trial period has ended. Upgrade to continue accessing AI-powered receipt processing.'
+              : 'Access powerful AI receipt processing, SMS automation, and expense tracking with a premium subscription.'
+            }
+          </p>
+          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+            <button
+              onClick={async () => {
+                try {
+                  if (!process.env.NEXT_PUBLIC_STRIPE_PRICE_ID) {
+                    window.location.href = '/pricing';
+                    return;
+                  }
+
+                  const response = await fetch('/api/create-checkout-session', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      priceId: process.env.NEXT_PUBLIC_STRIPE_PRICE_ID,
+                      successUrl: window.location.origin + '/ghl/receipts?upgraded=true',
+                      cancelUrl: window.location.href,
+                    }),
+                  });
+
+                  if (!response.ok) throw new Error('Failed to create checkout session');
+                  const { url } = await response.json();
+                  if (url) {
+                    window.location.href = url;
+                  } else {
+                    throw new Error('No checkout URL returned');
+                  }
+                } catch (error) {
+                  console.error('Error creating checkout session:', error);
+                  window.location.href = '/pricing';
+                }
+              }}
+              className="bg-gradient-to-r from-blue-600 to-blue-700 text-white px-8 py-3 rounded-lg font-semibold hover:from-blue-700 hover:to-blue-800 transition-all duration-200 shadow-lg hover:shadow-xl"
+            >
+              Upgrade Now
+            </button>
+            <button
+              onClick={() => window.location.href = '/pricing'}
+              className="bg-white text-gray-700 px-8 py-3 rounded-lg font-semibold hover:bg-gray-50 transition-colors border border-gray-300"
+            >
+              View Pricing
+            </button>
+          </div>
+        </div>
+
+      </div>
+    );
+  }
 
   const checkConnectionStatus = async () => {
     try {
@@ -174,29 +263,29 @@ export default function GHLReceiptsPage() {
       title: 'SMS Receipt Processing',
       description: 'Send receipt photos via SMS for automatic processing',
       icon: Smartphone,
-      status: 'Active',
-      color: 'bg-green-100 text-green-600'
+      status: 'Coming Soon',
+      color: 'bg-gray-100 text-gray-600'
     },
     {
       title: 'AI Data Extraction',
       description: 'Automatically extract vendor, amount, date, and category',
       icon: Camera,
-      status: 'Active',
-      color: 'bg-blue-100 text-blue-600'
+      status: 'Coming Soon',
+      color: 'bg-gray-100 text-gray-600'
     },
     {
       title: 'Smart Job Matching',
       description: 'AI matches receipts to opportunities automatically',
       icon: TrendingUp,
-      status: 'Active',
-      color: 'bg-purple-100 text-purple-600'
+      status: 'Coming Soon',
+      color: 'bg-gray-100 text-gray-600'
     },
     {
       title: 'Automated Conversations',
       description: 'Two-way SMS conversations for confirmation',
       icon: MessageSquare,
-      status: 'Active',
-      color: 'bg-orange-100 text-orange-600'
+      status: 'Coming Soon',
+      color: 'bg-gray-100 text-gray-600'
     }
   ];
 
@@ -234,20 +323,21 @@ export default function GHLReceiptsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Receipt Processing</h2>
-          <p className="text-gray-600">AI-powered receipt processing with SMS automation</p>
+          <div className="flex items-center gap-2">
+            <p className="text-gray-600">AI-powered receipt processing with SMS automation</p>
+            <ComingSoonBadge size="sm" />
+          </div>
         </div>
         <div className="flex items-center space-x-3">
           <span className="flex items-center space-x-2 text-sm text-green-600">
             <CheckCircle className="w-4 h-4" />
             <span>Connected</span>
           </span>
-          <Link
-            href="/test-receipt-ai"
-            className="inline-flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-          >
+          <div className="inline-flex items-center space-x-2 px-4 py-2 bg-gray-100 text-gray-600 rounded-lg cursor-not-allowed">
             <Camera className="w-4 h-4" />
-            <span>Test AI Processing</span>
-          </Link>
+            <span>AI Processing</span>
+            <ComingSoonBadge size="sm" />
+          </div>
         </div>
       </div>
 
@@ -304,43 +394,58 @@ export default function GHLReceiptsPage() {
 
       {/* How It Works */}
       <div className="bg-white rounded-xl border border-gray-200 p-6">
-        <h3 className="text-xl font-semibold text-gray-900 mb-6">How AI Receipt Processing Works</h3>
+        <div className="flex items-center justify-between mb-6">
+          <h3 className="text-xl font-semibold text-gray-900">How AI Receipt Processing Works</h3>
+          <ComingSoonBadge size="md" />
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
           <div className="text-center">
-            <div className="w-16 h-16 bg-blue-100 rounded-lg flex items-center justify-center mx-auto mb-4">
-              <Smartphone className="w-8 h-8 text-blue-600" />
+            <div className="w-16 h-16 bg-gray-100 rounded-lg flex items-center justify-center mx-auto mb-4">
+              <Smartphone className="w-8 h-8 text-gray-600" />
             </div>
-            <h4 className="font-semibold text-gray-900 mb-2">1. Send via SMS</h4>
+            <div className="flex items-center justify-center gap-2 mb-2">
+              <h4 className="font-semibold text-gray-900">1. Send via SMS</h4>
+              <ComingSoonBadge size="sm" />
+            </div>
             <p className="text-sm text-gray-600">
               Field workers text receipt photos to the system via SMS or WhatsApp
             </p>
           </div>
           
           <div className="text-center">
-            <div className="w-16 h-16 bg-green-100 rounded-lg flex items-center justify-center mx-auto mb-4">
-              <Camera className="w-8 h-8 text-green-600" />
+            <div className="w-16 h-16 bg-gray-100 rounded-lg flex items-center justify-center mx-auto mb-4">
+              <Camera className="w-8 h-8 text-gray-600" />
             </div>
-            <h4 className="font-semibold text-gray-900 mb-2">2. AI Extraction</h4>
+            <div className="flex items-center justify-center gap-2 mb-2">
+              <h4 className="font-semibold text-gray-900">2. AI Extraction</h4>
+              <ComingSoonBadge size="sm" />
+            </div>
             <p className="text-sm text-gray-600">
               GPT-4 Vision extracts vendor, amount, date, description, and category
             </p>
           </div>
           
           <div className="text-center">
-            <div className="w-16 h-16 bg-purple-100 rounded-lg flex items-center justify-center mx-auto mb-4">
-              <TrendingUp className="w-8 h-8 text-purple-600" />
+            <div className="w-16 h-16 bg-gray-100 rounded-lg flex items-center justify-center mx-auto mb-4">
+              <TrendingUp className="w-8 h-8 text-gray-600" />
             </div>
-            <h4 className="font-semibold text-gray-900 mb-2">3. Smart Matching</h4>
+            <div className="flex items-center justify-center gap-2 mb-2">
+              <h4 className="font-semibold text-gray-900">3. Smart Matching</h4>
+              <ComingSoonBadge size="sm" />
+            </div>
             <p className="text-sm text-gray-600">
               AI matches receipts to active opportunities using intelligent algorithms
             </p>
           </div>
           
           <div className="text-center">
-            <div className="w-16 h-16 bg-orange-100 rounded-lg flex items-center justify-center mx-auto mb-4">
-              <MessageSquare className="w-8 h-8 text-orange-600" />
+            <div className="w-16 h-16 bg-gray-100 rounded-lg flex items-center justify-center mx-auto mb-4">
+              <MessageSquare className="w-8 h-8 text-gray-600" />
             </div>
-            <h4 className="font-semibold text-gray-900 mb-2">4. Confirmation</h4>
+            <div className="flex items-center justify-center gap-2 mb-2">
+              <h4 className="font-semibold text-gray-900">4. Confirmation</h4>
+              <ComingSoonBadge size="sm" />
+            </div>
             <p className="text-sm text-gray-600">
               Two-way SMS conversation confirms job match and auto-logs receipt
             </p>
@@ -417,13 +522,11 @@ export default function GHLReceiptsPage() {
                 ? 'No receipts have been marked as reimbursed yet.'
                 : 'No company card expenses recorded yet.'}
             </p>
-            <Link
-              href="/test-receipt-ai"
-              className="inline-flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
+            <div className="inline-flex items-center space-x-2 px-4 py-2 bg-gray-100 text-gray-600 rounded-lg cursor-not-allowed">
               <Camera className="w-4 h-4" />
-              <span>Test AI Processing</span>
-            </Link>
+              <span>AI Processing</span>
+              <ComingSoonBadge size="sm" />
+            </div>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -541,6 +644,14 @@ export default function GHLReceiptsPage() {
           </div>
         </div>
       </div>
+
+      {/* Paywall Modal - Non-dismissible */}
+      <PaywallModal
+        isOpen={showPaywallModal}
+        onClose={() => {}} // Prevent dismissal
+        feature="GHL Receipt Processing"
+        trialEnded={trialEnded}
+      />
     </div>
   );
 }

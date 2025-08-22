@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth/auth-context';
+import { useSubscription } from '@/hooks/useSubscription';
+import { PaywallModal } from '@/components/ui/PaywallModal';
 import { 
   Building2, 
   Users, 
@@ -33,11 +35,24 @@ interface Integration {
 
 export default function GHLOverviewPage() {
   const { user } = useAuth();
+  const subscriptionData = useSubscription();
+  const { hasActiveSubscription, loading: subscriptionLoading, trialEnded } = subscriptionData;
+  
+  console.log('🚀 OVERVIEW PAGE: Component rendering');
+  console.log('🔍 OVERVIEW SUBSCRIPTION FULL DATA:', subscriptionData);
+  console.log('🔍 OVERVIEW EXTRACTED VALUES:', {
+    hasActiveSubscription,
+    subscriptionLoading,
+    trialEnded,
+    'typeof hasActiveSubscription': typeof hasActiveSubscription,
+    'typeof subscriptionLoading': typeof subscriptionLoading
+  });
   const [integration, setIntegration] = useState<Integration | null>(null);
   const [loading, setLoading] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
   const [showAnalysisDetails, setShowAnalysisDetails] = useState(false);
   const [analysisDetails, setAnalysisDetails] = useState<any[]>([]);
+  const [showPaywallModal, setShowPaywallModal] = useState(false);
   const [stats, setStats] = useState({
     totalContacts: 0,
     totalOpportunities: 0,
@@ -57,6 +72,19 @@ export default function GHLOverviewPage() {
   useEffect(() => {
     fetchIntegrationStatus();
   }, []);
+
+  useEffect(() => {
+    // Don't fetch data or show functionality without subscription
+    if (!subscriptionLoading && !hasActiveSubscription) {
+      setShowPaywallModal(true);
+      return;
+    }
+    
+    // Only proceed with normal functionality if subscription is active
+    if (hasActiveSubscription && !subscriptionLoading) {
+      setShowPaywallModal(false);
+    }
+  }, [hasActiveSubscription, subscriptionLoading]);
   
   // Auto-fetch location details if missing (with flag to prevent loops)
   const [hasFetchedDetails, setHasFetchedDetails] = useState(false);
@@ -82,13 +110,14 @@ export default function GHLOverviewPage() {
   }, [integration]);
 
   useEffect(() => {
-    if (integration?.status === 'connected') {
+    // Only fetch stats if user has active subscription
+    if (integration?.status === 'connected' && hasActiveSubscription) {
       fetchStats();
       if (showAnalysisDetails) {
         fetchAnalysisDetails();
       }
     }
-  }, [integration, showAnalysisDetails]);
+  }, [integration, showAnalysisDetails, hasActiveSubscription]);
 
   const fetchLocationDetails = async () => {
     if (!integration?.id || !integration?.config?.locationId) return;
@@ -404,13 +433,6 @@ export default function GHLOverviewPage() {
       color: 'bg-green-500'
     },
     {
-      title: 'Test AI Receipts',
-      description: 'Process receipt images with AI',
-      href: '/test-receipt-ai',
-      icon: Receipt,
-      color: 'bg-purple-500'
-    },
-    {
       title: 'Admin Settings',
       description: 'Manage payment structures and credit cards',
       href: '/ghl/settings',
@@ -419,7 +441,9 @@ export default function GHLOverviewPage() {
     }
   ];
 
+  console.log('🔍 EARLY RETURN CHECK 1 - Loading:', { loading });
   if (loading) {
+    console.log('🔄 EARLY RETURN: Showing loading screen');
     return (
       <div className="animate-pulse space-y-6">
         <div className="h-32 bg-gray-200 rounded-lg"></div>
@@ -432,8 +456,99 @@ export default function GHLOverviewPage() {
     );
   }
 
-  // If not connected, show only the connection card
+  // SECURITY FIRST: Check subscription BEFORE any business logic
+  console.log('🔍 SECURITY CHECK - Subscription Status:', {
+    subscriptionLoading,
+    hasActiveSubscription,
+    trialEnded
+  });
+
+  // FIRST: Show loading state during subscription check  
+  if (subscriptionLoading) {
+    console.log('💙 OVERVIEW: Showing subscription loading state');
+    return (
+      <div className="space-y-8">
+        <div className="bg-blue-100 border-2 border-blue-300 p-8 rounded-lg text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-4 border-blue-600 border-t-transparent mx-auto mb-4"></div>
+          <h3 className="font-bold text-blue-800">🔄 Loading Subscription Status...</h3>
+          <p className="text-sm text-blue-700 mt-2">Checking your subscription to determine access level</p>
+        </div>
+      </div>
+    );
+  }
+
+  // SECOND: Block content if no subscription
+  if (!subscriptionLoading && !hasActiveSubscription) {
+    console.log('🛑 OVERVIEW SECURITY BLOCK: Preventing access to GHL content');
+    return (
+      <div className="space-y-8">
+        <div className="bg-gradient-to-br from-yellow-50 to-orange-50 border-2 border-dashed border-yellow-300 rounded-2xl p-12 text-center">
+          <div className="w-20 h-20 bg-gradient-to-br from-yellow-400 to-yellow-600 rounded-full flex items-center justify-center mx-auto mb-6">
+            <Building2 className="w-10 h-10 text-white" />
+          </div>
+          <h2 className="text-2xl font-bold text-gray-900 mb-3">
+            {trialEnded ? 'Trial Expired' : 'Subscription Required'}
+          </h2>
+          <p className="text-lg text-gray-700 mb-6 max-w-2xl mx-auto">
+            {trialEnded 
+              ? 'Your trial period has ended. Upgrade to continue accessing GoHighLevel integration features.'
+              : 'Access powerful GoHighLevel integrations, commission tracking, and automation tools with a premium subscription.'
+            }
+          </p>
+          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+            <button
+              onClick={async () => {
+                try {
+                  if (!process.env.NEXT_PUBLIC_STRIPE_PRICE_ID) {
+                    window.location.href = '/pricing';
+                    return;
+                  }
+
+                  const response = await fetch('/api/create-checkout-session', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      priceId: process.env.NEXT_PUBLIC_STRIPE_PRICE_ID,
+                      successUrl: window.location.origin + '/ghl?upgraded=true',
+                      cancelUrl: window.location.href,
+                    }),
+                  });
+
+                  if (!response.ok) throw new Error('Failed to create checkout session');
+                  const { url } = await response.json();
+                  if (url) {
+                    window.location.href = url;
+                  } else {
+                    throw new Error('No checkout URL returned');
+                  }
+                } catch (error) {
+                  console.error('Error creating checkout session:', error);
+                  window.location.href = '/pricing';
+                }
+              }}
+              className="bg-gradient-to-r from-blue-600 to-blue-700 text-white px-8 py-3 rounded-lg font-semibold hover:from-blue-700 hover:to-blue-800 transition-all duration-200 shadow-lg hover:shadow-xl"
+            >
+              Upgrade Now
+            </button>
+            <Link
+              href="/pricing"
+              className="bg-white text-gray-700 px-8 py-3 rounded-lg font-semibold hover:bg-gray-50 transition-colors border border-gray-300"
+            >
+              View Pricing
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // THIRD: Only after subscription is verified, check integration status
+  console.log('🔍 BUSINESS LOGIC - Integration Status:', { 
+    integration_status: integration?.status,
+    integration_exists: !!integration 
+  });
   if (integration?.status === 'disconnected') {
+    console.log('🔌 SAFE: Showing disconnected card (user has subscription)');
     return (
       <div className="space-y-8">
         <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
@@ -453,6 +568,9 @@ export default function GHLOverviewPage() {
     );
   }
 
+  // Subscription security check passed - continue with normal business logic
+  console.log('✅ SECURITY PASSED: User has valid subscription, proceeding with normal logic');
+  
   return (
     <div className="space-y-8">
       {/* Connection Status */}
@@ -482,8 +600,8 @@ export default function GHLOverviewPage() {
           <div>
             <p className="text-sm text-gray-500">Account Name</p>
             <div className="flex items-center space-x-2">
-              <p className="text-lg font-medium text-gray-900">{integration?.config?.locationName || 'Connected Account'}</p>
-              {!integration?.config?.locationName && integration?.config?.locationId && (
+              <p className="text-lg font-medium text-gray-900">{String(integration?.config?.locationName || 'Connected Account')}</p>
+              {!integration?.config?.locationName && integration?.config?.locationId ? (
                 <div className="flex items-center space-x-2">
                   <button
                     onClick={async () => {
@@ -515,12 +633,12 @@ export default function GHLOverviewPage() {
                     Fetch Name
                   </button>
                 </div>
-              )}
+              ) : null}
             </div>
           </div>
           <div>
             <p className="text-sm text-gray-500">Location ID</p>
-            <p className="text-sm font-mono text-gray-700">{integration?.config?.locationId || 'N/A'}</p>
+            <p className="text-sm font-mono text-gray-700">{String(integration?.config?.locationId || 'N/A')}</p>
           </div>
           <div>
             <p className="text-sm text-gray-500">Last Sync</p>
@@ -735,6 +853,7 @@ export default function GHLOverviewPage() {
           <p>Activity tracking coming soon...</p>
         </div>
       </div>
+
     </div>
   );
 }

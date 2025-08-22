@@ -4,10 +4,12 @@ import { requireAuth } from '@/lib/auth/production-auth-server';
 import { getUserOrganization } from '@/lib/auth/organization-helper';
 import { GHLClient } from '@/lib/integrations/gohighlevel/client';
 import { decrypt, encrypt } from '@/lib/utils/encryption';
+import { requireSubscription } from '@/lib/utils/subscription-utils';
 
 export async function GET(request: NextRequest) {
   try {
-    const { userId } = await requireAuth(request);
+    // Check subscription before proceeding
+    const { userId } = await requireSubscription(request);
     const organization = await getUserOrganization(userId);
     
     if (!organization) {

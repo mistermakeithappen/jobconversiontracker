@@ -47,11 +47,16 @@ export const UserProvider = (props: any) => {
     if (user) {
       const supabase = getSupabaseClient();
       const getSubscription = async () => {
-        const { data: subscription } = await supabase
+        const { data: subscription, error } = await supabase
           .from('subscriptions')
           .select('*, prices(*, products(*))')
           .in('status', ['trialing', 'active'])
-          .single();
+          .maybeSingle();
+          
+        if (error && error.code !== 'PGRST116') {
+          console.error('Subscription fetch error:', error);
+          return null;
+        }
         setSubscription(subscription);
       };
       getSubscription();

@@ -2,12 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth, getServiceSupabase } from '@/lib/auth/production-auth-server';
 import { getUserOrganization } from '@/lib/auth/organization-helper';
 import { createGHLClient } from '@/lib/integrations/gohighlevel/client';
+import { requireSubscription } from '@/lib/utils/subscription-utils';
 
 export async function GET(request: NextRequest) {
   console.log('GHL Calendars API route called');
   try {
+    // Check subscription before proceeding
+    const { userId } = await requireSubscription(request);
     const supabase = getServiceSupabase();
-    const { userId } = await requireAuth(request);
     console.log('Auth successful, userId:', userId);
     
     const organization = await getUserOrganization(userId);

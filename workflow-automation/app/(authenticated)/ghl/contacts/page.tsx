@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react';
 import { Users, RefreshCw, CheckCircle, Plus, Settings, Search, X, Mail, Phone, Calendar, Tag } from 'lucide-react';
 import { getSupabaseClient } from '@/lib/auth/client';
+import { useSubscription } from '@/hooks/useSubscription';
+import { PaywallModal } from '@/components/ui/PaywallModal';
 
 interface GHLContact {
   id: string;
@@ -26,8 +28,10 @@ interface GHLContact {
 }
 
 export default function GHLContactsPage() {
+  const { hasActiveSubscription, loading: subscriptionLoading, trialEnded } = useSubscription();
   const [contacts, setContacts] = useState<GHLContact[]>([]);
   const [loading, setLoading] = useState(false);
+  const [showPaywallModal, setShowPaywallModal] = useState(false);
   const [connected, setConnected] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'checking' | 'connected' | 'disconnected'>('checking');
   const [integrationId, setIntegrationId] = useState<string | null>(null);
@@ -76,10 +80,89 @@ export default function GHLContactsPage() {
   }, []);
 
   useEffect(() => {
-    if (connected) {
+    // Check subscription status and show paywall if needed
+    if (!subscriptionLoading && !hasActiveSubscription) {
+      setShowPaywallModal(true);
+      return;
+    }
+    
+    if (connected && hasActiveSubscription) {
       fetchContacts();
     }
-  }, [connected]);
+  }, [connected, hasActiveSubscription, subscriptionLoading]);
+
+  // DEBUG: Show subscription values
+  console.log('🔍 CONTACTS DEBUG:', {
+    subscriptionLoading,
+    hasActiveSubscription,
+    trialEnded,
+    shouldBlock: !subscriptionLoading && !hasActiveSubscription
+  });
+
+  // Don't show content if no subscription - BLOCK CONTENT
+  if (!subscriptionLoading && !hasActiveSubscription) {
+    return (
+      <div className="space-y-8">
+        <div className="bg-gradient-to-br from-yellow-50 to-orange-50 border-2 border-dashed border-yellow-300 rounded-2xl p-12 text-center">
+          <div className="w-20 h-20 bg-gradient-to-br from-yellow-400 to-yellow-600 rounded-full flex items-center justify-center mx-auto mb-6">
+            <Users className="w-10 h-10 text-white" />
+          </div>
+          <h2 className="text-2xl font-bold text-gray-900 mb-3">
+            {trialEnded ? 'Trial Expired' : 'Subscription Required'}
+          </h2>
+          <p className="text-lg text-gray-700 mb-6 max-w-2xl mx-auto">
+            {trialEnded 
+              ? 'Your trial period has ended. Upgrade to continue accessing GoHighLevel contacts management.'
+              : 'Access powerful contact synchronization, management tools, and automation features with a premium subscription.'
+            }
+          </p>
+          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+            <button
+              onClick={async () => {
+                try {
+                  if (!process.env.NEXT_PUBLIC_STRIPE_PRICE_ID) {
+                    window.location.href = '/pricing';
+                    return;
+                  }
+
+                  const response = await fetch('/api/create-checkout-session', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      priceId: process.env.NEXT_PUBLIC_STRIPE_PRICE_ID,
+                      successUrl: window.location.origin + '/ghl/contacts?upgraded=true',
+                      cancelUrl: window.location.href,
+                    }),
+                  });
+
+                  if (!response.ok) throw new Error('Failed to create checkout session');
+                  const { url } = await response.json();
+                  if (url) {
+                    window.location.href = url;
+                  } else {
+                    throw new Error('No checkout URL returned');
+                  }
+                } catch (error) {
+                  console.error('Error creating checkout session:', error);
+                  window.location.href = '/pricing';
+                }
+              }}
+              className="bg-gradient-to-r from-blue-600 to-blue-700 text-white px-8 py-3 rounded-lg font-semibold hover:from-blue-700 hover:to-blue-800 transition-all duration-200 shadow-lg hover:shadow-xl"
+            >
+              Upgrade Now
+            </button>
+            <button
+              onClick={() => window.location.href = '/pricing'}
+              className="bg-white text-gray-700 px-8 py-3 rounded-lg font-semibold hover:bg-gray-50 transition-colors border border-gray-300"
+            >
+              View Pricing
+            </button>
+          </div>
+        </div>
+
+      </div>
+    );
+  }
 
   const checkConnectionStatus = async () => {
     try {
@@ -683,6 +766,14 @@ export default function GHLContactsPage() {
           </div>
         </div>
       )}
+
+      {/* Paywall Modal - Non-dismissible */}
+      <PaywallModal
+        isOpen={showPaywallModal}
+        onClose={() => {}} // Prevent dismissal
+        feature="GHL Contacts"
+        trialEnded={trialEnded}
+      />
     </div>
   );
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { getStripe } from '@/lib/stripe/client';
 import { postData } from '@/lib/utils/helpers';
@@ -50,6 +50,16 @@ export default function Pricing({ products, session }: PricingProps) {
   const [priceIdLoading, setPriceIdLoading] = useState<string>();
   const { user, loading: isLoading } = useAuth();
 
+  // Force reset stuck state on component mount
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (priceIdLoading) {
+        setPriceIdLoading(undefined);
+      }
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, []); // Only on mount
+
   // Fallback plans if no products from database
   const fallbackPlans: Plan[] = [
     {
@@ -69,7 +79,13 @@ export default function Pricing({ products, session }: PricingProps) {
         'Priority Support'
       ],
       icon: Zap,
-      popular: true
+      popular: true,
+      stripePrice: {
+        id: process.env.NEXT_PUBLIC_STRIPE_PRICE_ID || 'price_fallback',
+        unit_amount: 4700, // $47.00 in cents
+        currency: 'usd',
+        interval: 'month'
+      }
     }
   ];
 
@@ -95,28 +111,87 @@ export default function Pricing({ products, session }: PricingProps) {
   })) : fallbackPlans;
 
   const handleCheckout = async (plan: any) => {
-    if (plan.stripePrice) {
-      setPriceIdLoading(plan.stripePrice.id);
+   
+    // Get the price ID - either from Stripe data or fallback
+    const priceId = plan.stripePrice?.id || process.env.NEXT_PUBLIC_STRIPE_PRICE_ID;
+    
+    if (!priceId) {
+      alert('Checkout temporarily unavailable. Please try again later.');
+      return;
+    }
+
+    setPriceIdLoading(priceId);
+    
+    // Add timeout to prevent infinite loading
+    const timeoutId = setTimeout(() => {
+      setPriceIdLoading(undefined);
+      alert('Checkout timed out. Please try again.');
+    }, 30000); // 30 second timeout
+    
+    try {
+      // Check authentication
       if (!user) {
+      
+        clearTimeout(timeoutId);
+        setPriceIdLoading(undefined);
         return router.push('/signin');
       }
 
-      try {
-        const { sessionId } = await postData({
-          url: '/api/create-checkout-session',
-          data: { price: plan.stripePrice },
-        });
+     
+      
+      // Use the corrected data format that matches our API
+      const response = await postData({
+        url: '/api/create-checkout-session',
+        data: { 
+          priceId: priceId,  // Send priceId directly
+          successUrl: window.location.origin + '/ghl?upgraded=true',
+          cancelUrl: window.location.origin + '/pricing'
+        },
+      });
 
+    
+      clearTimeout(timeoutId);
+
+      if (response.url) {
+       
+        // Use direct redirect instead of Stripe redirect for better reliability
+        window.location.href = response.url;
+        // Don't clear loading state here - let the redirect handle it
+        return;
+      } else if (response.sessionId) {
+   
+        // Fallback to Stripe redirect
         const stripe = await getStripe();
-        stripe?.redirectToCheckout({ sessionId });
-      } catch (error) {
-        return alert((error as Error)?.message);
-      } finally {
-        setPriceIdLoading(undefined);
+        if (stripe) {
+          const { error } = await stripe.redirectToCheckout({ sessionId: response.sessionId });
+          if (error) {
+            throw new Error(error.message);
+          }
+          // Don't clear loading state here - let the redirect handle it
+          return;
+        } else {
+          throw new Error('Stripe failed to load');
+        }
+      } else {
+        throw new Error('No checkout URL or session ID returned from API');
       }
-    } else {
-      // For fallback plans, redirect to signup
-      router.push('/signup');
+    } catch (error) {
+      clearTimeout(timeoutId);
+      setPriceIdLoading(undefined);
+      
+      // More specific error messages
+      let message = 'Checkout failed. Please try again.';
+      if (error instanceof Error) {
+        if (error.message.includes('fetch')) {
+          message = 'Network error. Please check your connection and try again.';
+        } else if (error.message.includes('401') || error.message.includes('Unauthorized')) {
+          message = 'Please sign in and try again.';
+        } else {
+          message = error.message;
+        }
+      }
+      
+      alert(message);
     }
   };
 
@@ -227,13 +302,22 @@ export default function Pricing({ products, session }: PricingProps) {
                     </CardContent>
 
                     <CardFooter className="p-10 pt-6">
-                      <Button
-                        onClick={() => handleCheckout(plan)}
-                        disabled={isLoading}
-                        className="w-full text-xl py-6 rounded-2xl font-semibold transition-all duration-300 bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:shadow-xl hover:scale-105"
-                      >
-                        {priceIdLoading === plan.stripePrice?.id ? 'Loading...' : 'Get Started Now'}
-                      </Button>
+                      <div className="w-full space-y-3">
+                        <Button
+                          onClick={() => handleCheckout(plan)}
+                          disabled={isLoading || !!priceIdLoading}
+                          className="w-full text-xl py-6 rounded-2xl font-semibold transition-all duration-300 bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:shadow-xl hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {(() => {
+                            const currentPriceId = plan.stripePrice?.id || process.env.NEXT_PUBLIC_STRIPE_PRICE_ID;
+                            const isCurrentPlanLoading = priceIdLoading === currentPriceId;
+                            
+                            if (isLoading) return 'Loading...';
+                            if (isCurrentPlanLoading) return 'Processing... Please wait';
+                            return 'Get Started Now';
+                          })()}
+                        </Button>
+                      </div>
                     </CardFooter>
                   </Card>
                 </motion.div>

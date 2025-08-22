@@ -4,15 +4,11 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { cn } from '@/lib/utils/cn';
-import { Zap, LayoutGrid, Plug, Camera, Building2, CreditCard, ChevronDown, Settings, LogOut, User, DollarSign, MessageCircle } from 'lucide-react';
+import { Zap, Building2, CreditCard, ChevronDown, Settings, LogOut } from 'lucide-react';
 import { useAuth } from '@/lib/auth/auth-context';
 
 const navItems = [
   { href: '/ghl', label: 'GoHighLevel', icon: Building2 },
-  { href: '/chatbot', label: 'Chatbot', icon: MessageCircle },
-  { href: '/integrations', label: 'Integrations', icon: Plug },
-  { href: '/test-receipt-ai', label: 'AI Receipt Test', icon: Camera },
-  { href: '/pricing', label: 'Pricing', icon: DollarSign },
 ];
 
 export default function Navbar() {
@@ -66,10 +62,6 @@ export default function Navbar() {
           </div>
           
           <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-2 px-3 py-1.5 bg-gray-50 rounded-lg">
-              <CreditCard className="w-4 h-4 text-gray-600" />
-              <span className="text-sm font-medium text-gray-700">15,000 credits</span>
-            </div>
             
             {/* User Dropdown */}
             <div className="relative">

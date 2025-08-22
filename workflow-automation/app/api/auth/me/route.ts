@@ -57,7 +57,7 @@ export async function GET(request: NextRequest) {
           slug
         )
       `)
-      .eq('user_id', userId)
+      .eq('organization_members.user_id', userId)
       .single();
 
     if (orgError || !orgMember) {

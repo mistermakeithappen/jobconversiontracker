@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth/production-auth-server';
 import { getServiceSupabase } from '@/lib/supabase/client';
+import { requireSubscription } from '@/lib/utils/subscription-utils';
 
 export async function GET(request: NextRequest) {
   try {
-    const { userId } = await requireAuth(request);
+    // Check subscription before proceeding
+    const { userId } = await requireSubscription(request);
 
     const supabase = getServiceSupabase();
 
@@ -42,7 +44,8 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { userId } = await requireAuth(request);
+    // Check subscription before proceeding
+    const { userId } = await requireSubscription(request);
 
     const body = await request.json();
     const {

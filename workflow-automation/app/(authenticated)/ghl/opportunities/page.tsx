@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { DollarSign, RefreshCw, CheckCircle, Plus } from 'lucide-react';
+import { useSubscription } from '@/hooks/useSubscription';
+import { PaywallModal } from '@/components/ui/PaywallModal';
 import { OpportunitiesPipelineView } from '@/components/ghl/opportunities-pipeline-view';
 import { getSupabaseClient } from '@/lib/auth/client';
 
@@ -36,7 +38,17 @@ interface GHLPipeline {
 }
 
 export default function GHLOpportunitiesPage() {
+  console.log('🚀 OPPORTUNITIES PAGE: Component is rendering');
   const searchParams = useSearchParams();
+  const { hasActiveSubscription, loading: subscriptionLoading, trialEnded } = useSubscription();
+  
+  console.log('🔍 SUBSCRIPTION HOOK VALUES:', {
+    hasActiveSubscription,
+    subscriptionLoading,
+    trialEnded,
+    typeof_hasActiveSubscription: typeof hasActiveSubscription,
+    typeof_subscriptionLoading: typeof subscriptionLoading
+  });
   const [opportunities, setOpportunities] = useState<GHLOpportunity[]>([]);
   const [pipelines, setPipelines] = useState<GHLPipeline[]>([]);
   const [loading, setLoading] = useState(false);
@@ -46,6 +58,7 @@ export default function GHLOpportunitiesPage() {
   const [integrationId, setIntegrationId] = useState<string | null>(null);
   const [openOpportunityId, setOpenOpportunityId] = useState<string | null>(null);
   const [reconnectionReason, setReconnectionReason] = useState<string | null>(null);
+  const [showPaywallModal, setShowPaywallModal] = useState(false);
   const [paginationInfo, setPaginationInfo] = useState<{
     requestCount?: number;
     totalFetched?: number;
@@ -57,7 +70,13 @@ export default function GHLOpportunitiesPage() {
   }, []);
 
   useEffect(() => {
-    if (connected) {
+    // Check subscription status and show paywall if needed
+    if (!subscriptionLoading && !hasActiveSubscription) {
+      setShowPaywallModal(true);
+      return;
+    }
+    
+    if (connected && hasActiveSubscription) {
       // First load from database for fast display
       fetchOpportunities();
       // Then sync with GHL in background after a short delay
@@ -67,7 +86,7 @@ export default function GHLOpportunitiesPage() {
       
       return () => clearTimeout(syncTimer);
     }
-  }, [connected]);
+  }, [connected, hasActiveSubscription, subscriptionLoading]);
 
   useEffect(() => {
     // Check for openOpportunity query parameter
@@ -80,6 +99,95 @@ export default function GHLOpportunitiesPage() {
       }
     }
   }, [searchParams, opportunities]);
+
+  // DEBUG: Show subscription values
+  console.log('🔍 OPPORTUNITIES DEBUG:', {
+    subscriptionLoading,
+    hasActiveSubscription,
+    trialEnded,
+    shouldBlock: !subscriptionLoading && !hasActiveSubscription,
+    CRITICAL_CHECK: 'This should block content and prevent Connect GHL button'
+  });
+
+  // CRITICAL SECURITY: Don't show content if no subscription - BLOCK CONTENT COMPLETELY
+  console.log('🔎 CONDITIONAL CHECK:', {
+    '!subscriptionLoading': !subscriptionLoading,
+    '!hasActiveSubscription': !hasActiveSubscription,
+    'BOTH_TRUE': (!subscriptionLoading && !hasActiveSubscription),
+    'SHOULD_BLOCK': (!subscriptionLoading && !hasActiveSubscription) ? 'YES - BLOCKING' : 'NO - ALLOWING'
+  });
+  
+  if (!subscriptionLoading && !hasActiveSubscription) {
+    console.log('🛑 SECURITY BLOCK: Preventing access to GHL content - RETURNING PAYWALL');  
+    return (
+      <div className="space-y-8">
+        <div className="bg-gradient-to-br from-yellow-50 to-orange-50 border-2 border-dashed border-yellow-300 rounded-2xl p-12 text-center">
+          <div className="w-20 h-20 bg-gradient-to-br from-yellow-400 to-yellow-600 rounded-full flex items-center justify-center mx-auto mb-6">
+            <DollarSign className="w-10 h-10 text-white" />
+          </div>
+          <h2 className="text-2xl font-bold text-gray-900 mb-3">
+            {trialEnded ? 'Trial Expired' : 'Subscription Required'}
+          </h2>
+          <p className="text-lg text-gray-700 mb-6 max-w-2xl mx-auto">
+            {trialEnded 
+              ? 'Your trial period has ended. Upgrade to continue accessing GoHighLevel opportunities tracking.'
+              : 'Access powerful opportunities pipeline tracking, profitability analysis, and automation tools with a premium subscription.'
+            }
+          </p>
+          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+            <button
+              onClick={async () => {
+                try {
+                  if (!process.env.NEXT_PUBLIC_STRIPE_PRICE_ID) {
+                    window.location.href = '/pricing';
+                    return;
+                  }
+
+                  const response = await fetch('/api/create-checkout-session', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      priceId: process.env.NEXT_PUBLIC_STRIPE_PRICE_ID,
+                      successUrl: window.location.origin + '/ghl/opportunities?upgraded=true',
+                      cancelUrl: window.location.href,
+                    }),
+                  });
+
+                  if (!response.ok) throw new Error('Failed to create checkout session');
+                  const { url } = await response.json();
+                  if (url) {
+                    window.location.href = url;
+                  } else {
+                    throw new Error('No checkout URL returned');
+                  }
+                } catch (error) {
+                  console.error('Error creating checkout session:', error);
+                  window.location.href = '/pricing';
+                }
+              }}
+              className="bg-gradient-to-r from-blue-600 to-blue-700 text-white px-8 py-3 rounded-lg font-semibold hover:from-blue-700 hover:to-blue-800 transition-all duration-200 shadow-lg hover:shadow-xl"
+            >
+              Upgrade Now
+            </button>
+            <button
+              onClick={() => window.location.href = '/pricing'}
+              className="bg-white text-gray-700 px-8 py-3 rounded-lg font-semibold hover:bg-gray-50 transition-colors border border-gray-300"
+            >
+              View Pricing
+            </button>
+          </div>
+        </div>
+
+        {/* Paywall Modal - Non-dismissible */}
+        <PaywallModal
+          isOpen={showPaywallModal}
+          onClose={() => {}} // Prevent dismissal
+          feature="Opportunities Pipeline"
+          trialEnded={trialEnded}
+        />
+      </div>
+    );
+  }
 
   const checkConnectionStatus = async () => {
     try {
@@ -369,6 +477,10 @@ export default function GHLOpportunitiesPage() {
           onOpportunityOpened={() => setOpenOpportunityId(null)}
         />
       )}
+      
+      {/* THIS SHOULD NEVER SHOW IF BLOCKING WORKS */}
+      {console.log('🚨 ERROR: Reached end of component - blocking failed!')}
+      
     </div>
   );
 }
