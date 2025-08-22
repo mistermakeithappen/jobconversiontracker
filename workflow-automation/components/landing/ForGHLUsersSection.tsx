@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { useInView } from 'framer-motion';
 import { useRef } from 'react';
 import { Building2, TrendingUp, Receipt, Users, Trophy, Calculator, AlertCircle } from 'lucide-react';
+import { ComingSoonBadge } from '@/components/ui/ComingSoonBadge';
 
 export default function ForGHLUsersSection() {
   const ref = useRef(null);
@@ -23,6 +24,7 @@ export default function ForGHLUsersSection() {
       description: 'Your team texts receipts. AI matches them to jobs. No more spreadsheets, no more lost receipts.',
       color: 'text-blue-600',
       bgColor: 'bg-blue-100',
+      hasComingSoon: true,
     },
     {
       icon: Calculator,
@@ -30,6 +32,7 @@ export default function ForGHLUsersSection() {
       description: 'Set rules once. Commissions calculate automatically. Your team can check their earnings anytime via text.',
       color: 'text-purple-600',
       bgColor: 'bg-purple-100',
+      hasComingSoon: true,
     },
     {
       icon: Users,
@@ -37,6 +40,7 @@ export default function ForGHLUsersSection() {
       description: 'They just text. No passwords, no training, no "I forgot how to use it" - just instant adoption.',
       color: 'text-orange-600',
       bgColor: 'bg-orange-100',
+      hasComingSoon: true,
     },
   ];
 
@@ -128,7 +132,10 @@ export default function ForGHLUsersSection() {
                 <div className="flex items-start space-x-3">
                   <div className="w-2 h-2 bg-green-400 rounded-full mt-2"></div>
                   <div>
-                    <p className="font-medium text-gray-900">Automatic expense capture</p>
+                    <div className="flex items-center gap-2">
+                      <p className="font-medium text-gray-900">Automatic expense capture</p>
+                      <ComingSoonBadge size="sm" />
+                    </div>
                     <p className="text-sm text-gray-600">Team texts receipts, AI does the rest</p>
                   </div>
                 </div>
@@ -142,7 +149,10 @@ export default function ForGHLUsersSection() {
                 <div className="flex items-start space-x-3">
                   <div className="w-2 h-2 bg-green-400 rounded-full mt-2"></div>
                   <div>
-                    <p className="font-medium text-gray-900">Team uses SMS only</p>
+                    <div className="flex items-center gap-2">
+                      <p className="font-medium text-gray-900">Team uses SMS only</p>
+                      <ComingSoonBadge size="sm" />
+                    </div>
                     <p className="text-sm text-gray-600">100% adoption, zero training needed</p>
                   </div>
                 </div>
@@ -166,7 +176,10 @@ export default function ForGHLUsersSection() {
                 <div className={`w-14 h-14 ${feature.bgColor} rounded-lg flex items-center justify-center mb-6`}>
                   <Icon className={`w-7 h-7 ${feature.color}`} />
                 </div>
-                <h3 className="text-xl font-semibold text-gray-900 mb-3">{feature.title}</h3>
+                <div className="flex items-center gap-2 mb-3">
+                  <h3 className="text-xl font-semibold text-gray-900">{feature.title}</h3>
+                  {feature.hasComingSoon && <ComingSoonBadge size="sm" />}
+                </div>
                 <p className="text-gray-600">{feature.description}</p>
               </motion.div>
             );

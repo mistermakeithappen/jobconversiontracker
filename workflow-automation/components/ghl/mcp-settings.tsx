@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Brain, Check, X, RefreshCw, Info, Shield, Zap } from 'lucide-react';
+import { ComingSoonBadge } from '@/components/ui/ComingSoonBadge';
 
 interface MCPCapabilities {
   tools: Array<{ name: string; description?: string }>;
@@ -141,7 +142,10 @@ export function MCPSettings({ integrationId, onStatusChange }: MCPSettingsProps)
               <Brain className={`w-5 h-5 ${mcpEnabled ? 'text-purple-600' : 'text-gray-400'}`} />
             </div>
             <div>
-              <h3 className="font-semibold text-gray-900">Model Context Protocol (MCP)</h3>
+              <div className="flex items-center gap-2 mb-1">
+                <h3 className="font-semibold text-gray-900">Model Context Protocol (MCP)</h3>
+                <ComingSoonBadge size="sm" />
+              </div>
               <p className="text-sm text-gray-600">
                 {mcpEnabled ? 'Enhanced AI capabilities enabled' : 'Enable MCP for advanced AI features'}
               </p>

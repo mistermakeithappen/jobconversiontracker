@@ -251,23 +251,19 @@ export default function BillingPage() {
                   <div className="space-y-3">
                     <div className="flex items-center gap-2 text-sm">
                       <CheckCircle className="w-4 h-4 text-green-500" />
-                      <span className='text-black'>Full GHL Integration</span>
+                      <span className='text-black'>GoHighLevel Integration</span>
                     </div>
                     <div className="flex items-center gap-2 text-sm">
                       <CheckCircle className="w-4 h-4 text-green-500" />
-                      <span className='text-black'>Advanced Workflows</span>
+                      <span className='text-black'>Commission Tracking & Calculations</span>
                     </div>
                     <div className="flex items-center gap-2 text-sm">
                       <CheckCircle className="w-4 h-4 text-green-500" />
-                      <span className='text-black'>AI-Powered Chatbots</span>
+                      <span className='text-black'>Real Profit Analytics</span>
                     </div>
                     <div className="flex items-center gap-2 text-sm">
                       <CheckCircle className="w-4 h-4 text-green-500" />
-                      <span className='text-black'>Priority Support</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-sm">
-                      <CheckCircle className="w-4 h-4 text-green-500" />
-                      <span className='text-black'>Advanced Analytics</span>
+                      <span className='text-black'>Automated Payout Management</span>
                     </div>
                   </div>
                 </CardContent>
@@ -300,27 +296,27 @@ export default function BillingPage() {
             </div>
             
             <CardContent className="p-8 text-center">
-              <div className="space-y-6">
+                              <div className="space-y-6">
                 <div className="grid grid-cols-1 gap-4">
                   <div className="flex items-center gap-3 text-left p-4 bg-blue-50 rounded-lg">
                     <Star className="w-5 h-5 text-blue-500" />
                     <div>
-                      <div className="font-semibold text-gray-900">Full GHL Integration</div>
-                      <div className="text-sm text-gray-600">Connect and manage your GHL data</div>
+                      <div className="font-semibold text-gray-900">GoHighLevel Integration</div>
+                      <div className="text-sm text-gray-600">Full GHL integration for opportunities and contacts</div>
                     </div>
                   </div>
                   <div className="flex items-center gap-3 text-left p-4 bg-purple-50 rounded-lg">
                     <Sparkles className="w-5 h-5 text-purple-500" />
                     <div>
-                      <div className="font-semibold text-gray-900">AI-Powered Features</div>
-                      <div className="text-sm text-gray-600">Advanced automation and insights</div>
+                      <div className="font-semibold text-gray-900">Commission & Expense Tracking</div>
+                      <div className="text-sm text-gray-600">Automated calculations with SMS receipt capture</div>
                     </div>
                   </div>
                   <div className="flex items-center gap-3 text-left p-4 bg-green-50 rounded-lg">
                     <Shield className="w-5 h-5 text-green-500" />
                     <div>
-                      <div className="font-semibold text-gray-900">Priority Support</div>
-                      <div className="text-sm text-gray-600">Get help when you need it most</div>
+                      <div className="font-semibold text-gray-900">Real Profit Analytics</div>
+                      <div className="text-sm text-gray-600">See actual profit after all expenses and commissions</div>
                     </div>
                 </div>
                 </div>

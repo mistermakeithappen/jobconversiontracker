@@ -5,6 +5,7 @@ import { Receipt as ReceiptIcon, MessageSquare, Camera, Smartphone, RefreshCw, C
 import Link from 'next/link';
 import { useSubscription } from '@/hooks/useSubscription';
 import { PaywallModal } from '@/components/ui/PaywallModal';
+import { ComingSoonBadge } from '@/components/ui/ComingSoonBadge';
 
 interface Receipt {
   id: string;
@@ -262,29 +263,29 @@ export default function GHLReceiptsPage() {
       title: 'SMS Receipt Processing',
       description: 'Send receipt photos via SMS for automatic processing',
       icon: Smartphone,
-      status: 'Active',
-      color: 'bg-green-100 text-green-600'
+      status: 'Coming Soon',
+      color: 'bg-gray-100 text-gray-600'
     },
     {
       title: 'AI Data Extraction',
       description: 'Automatically extract vendor, amount, date, and category',
       icon: Camera,
-      status: 'Active',
-      color: 'bg-blue-100 text-blue-600'
+      status: 'Coming Soon',
+      color: 'bg-gray-100 text-gray-600'
     },
     {
       title: 'Smart Job Matching',
       description: 'AI matches receipts to opportunities automatically',
       icon: TrendingUp,
-      status: 'Active',
-      color: 'bg-purple-100 text-purple-600'
+      status: 'Coming Soon',
+      color: 'bg-gray-100 text-gray-600'
     },
     {
       title: 'Automated Conversations',
       description: 'Two-way SMS conversations for confirmation',
       icon: MessageSquare,
-      status: 'Active',
-      color: 'bg-orange-100 text-orange-600'
+      status: 'Coming Soon',
+      color: 'bg-gray-100 text-gray-600'
     }
   ];
 
@@ -322,20 +323,21 @@ export default function GHLReceiptsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Receipt Processing</h2>
-          <p className="text-gray-600">AI-powered receipt processing with SMS automation</p>
+          <div className="flex items-center gap-2">
+            <p className="text-gray-600">AI-powered receipt processing with SMS automation</p>
+            <ComingSoonBadge size="sm" />
+          </div>
         </div>
         <div className="flex items-center space-x-3">
           <span className="flex items-center space-x-2 text-sm text-green-600">
             <CheckCircle className="w-4 h-4" />
             <span>Connected</span>
           </span>
-          <Link
-            href="/test-receipt-ai"
-            className="inline-flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-          >
+          <div className="inline-flex items-center space-x-2 px-4 py-2 bg-gray-100 text-gray-600 rounded-lg cursor-not-allowed">
             <Camera className="w-4 h-4" />
-            <span>Test AI Processing</span>
-          </Link>
+            <span>AI Processing</span>
+            <ComingSoonBadge size="sm" />
+          </div>
         </div>
       </div>
 
@@ -392,43 +394,58 @@ export default function GHLReceiptsPage() {
 
       {/* How It Works */}
       <div className="bg-white rounded-xl border border-gray-200 p-6">
-        <h3 className="text-xl font-semibold text-gray-900 mb-6">How AI Receipt Processing Works</h3>
+        <div className="flex items-center justify-between mb-6">
+          <h3 className="text-xl font-semibold text-gray-900">How AI Receipt Processing Works</h3>
+          <ComingSoonBadge size="md" />
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
           <div className="text-center">
-            <div className="w-16 h-16 bg-blue-100 rounded-lg flex items-center justify-center mx-auto mb-4">
-              <Smartphone className="w-8 h-8 text-blue-600" />
+            <div className="w-16 h-16 bg-gray-100 rounded-lg flex items-center justify-center mx-auto mb-4">
+              <Smartphone className="w-8 h-8 text-gray-600" />
             </div>
-            <h4 className="font-semibold text-gray-900 mb-2">1. Send via SMS</h4>
+            <div className="flex items-center justify-center gap-2 mb-2">
+              <h4 className="font-semibold text-gray-900">1. Send via SMS</h4>
+              <ComingSoonBadge size="sm" />
+            </div>
             <p className="text-sm text-gray-600">
               Field workers text receipt photos to the system via SMS or WhatsApp
             </p>
           </div>
           
           <div className="text-center">
-            <div className="w-16 h-16 bg-green-100 rounded-lg flex items-center justify-center mx-auto mb-4">
-              <Camera className="w-8 h-8 text-green-600" />
+            <div className="w-16 h-16 bg-gray-100 rounded-lg flex items-center justify-center mx-auto mb-4">
+              <Camera className="w-8 h-8 text-gray-600" />
             </div>
-            <h4 className="font-semibold text-gray-900 mb-2">2. AI Extraction</h4>
+            <div className="flex items-center justify-center gap-2 mb-2">
+              <h4 className="font-semibold text-gray-900">2. AI Extraction</h4>
+              <ComingSoonBadge size="sm" />
+            </div>
             <p className="text-sm text-gray-600">
               GPT-4 Vision extracts vendor, amount, date, description, and category
             </p>
           </div>
           
           <div className="text-center">
-            <div className="w-16 h-16 bg-purple-100 rounded-lg flex items-center justify-center mx-auto mb-4">
-              <TrendingUp className="w-8 h-8 text-purple-600" />
+            <div className="w-16 h-16 bg-gray-100 rounded-lg flex items-center justify-center mx-auto mb-4">
+              <TrendingUp className="w-8 h-8 text-gray-600" />
             </div>
-            <h4 className="font-semibold text-gray-900 mb-2">3. Smart Matching</h4>
+            <div className="flex items-center justify-center gap-2 mb-2">
+              <h4 className="font-semibold text-gray-900">3. Smart Matching</h4>
+              <ComingSoonBadge size="sm" />
+            </div>
             <p className="text-sm text-gray-600">
               AI matches receipts to active opportunities using intelligent algorithms
             </p>
           </div>
           
           <div className="text-center">
-            <div className="w-16 h-16 bg-orange-100 rounded-lg flex items-center justify-center mx-auto mb-4">
-              <MessageSquare className="w-8 h-8 text-orange-600" />
+            <div className="w-16 h-16 bg-gray-100 rounded-lg flex items-center justify-center mx-auto mb-4">
+              <MessageSquare className="w-8 h-8 text-gray-600" />
             </div>
-            <h4 className="font-semibold text-gray-900 mb-2">4. Confirmation</h4>
+            <div className="flex items-center justify-center gap-2 mb-2">
+              <h4 className="font-semibold text-gray-900">4. Confirmation</h4>
+              <ComingSoonBadge size="sm" />
+            </div>
             <p className="text-sm text-gray-600">
               Two-way SMS conversation confirms job match and auto-logs receipt
             </p>
@@ -505,13 +522,11 @@ export default function GHLReceiptsPage() {
                 ? 'No receipts have been marked as reimbursed yet.'
                 : 'No company card expenses recorded yet.'}
             </p>
-            <Link
-              href="/test-receipt-ai"
-              className="inline-flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
+            <div className="inline-flex items-center space-x-2 px-4 py-2 bg-gray-100 text-gray-600 rounded-lg cursor-not-allowed">
               <Camera className="w-4 h-4" />
-              <span>Test AI Processing</span>
-            </Link>
+              <span>AI Processing</span>
+              <ComingSoonBadge size="sm" />
+            </div>
           </div>
         ) : (
           <div className="overflow-x-auto">

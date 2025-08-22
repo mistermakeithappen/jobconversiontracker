@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { useSubscription } from '@/hooks/useSubscription';
 import { PaywallBanner } from '@/components/ui/PaywallBanner';
+import { ComingSoonBadge } from '@/components/ui/ComingSoonBadge';
 import { useState, useEffect } from 'react';
 
 const ghlNavItems = [
@@ -129,6 +130,9 @@ export default function GHLLayout({
                 >
                   <Icon className="w-5 h-5" />
                   <span>{item.label}</span>
+                  {item.href === '/ghl/receipts' && (
+                    <ComingSoonBadge size="sm" />
+                  )}
                 </Link>
               );
             })}

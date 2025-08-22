@@ -433,13 +433,6 @@ export default function GHLOverviewPage() {
       color: 'bg-green-500'
     },
     {
-      title: 'Test AI Receipts',
-      description: 'Process receipt images with AI',
-      href: '/test-receipt-ai',
-      icon: Receipt,
-      color: 'bg-purple-500'
-    },
-    {
       title: 'Admin Settings',
       description: 'Manage payment structures and credit cards',
       href: '/ghl/settings',
@@ -607,8 +600,8 @@ export default function GHLOverviewPage() {
           <div>
             <p className="text-sm text-gray-500">Account Name</p>
             <div className="flex items-center space-x-2">
-              <p className="text-lg font-medium text-gray-900">{integration?.config?.locationName || 'Connected Account'}</p>
-              {!integration?.config?.locationName && integration?.config?.locationId && (
+              <p className="text-lg font-medium text-gray-900">{String(integration?.config?.locationName || 'Connected Account')}</p>
+              {!integration?.config?.locationName && integration?.config?.locationId ? (
                 <div className="flex items-center space-x-2">
                   <button
                     onClick={async () => {
@@ -640,12 +633,12 @@ export default function GHLOverviewPage() {
                     Fetch Name
                   </button>
                 </div>
-              )}
+              ) : null}
             </div>
           </div>
           <div>
             <p className="text-sm text-gray-500">Location ID</p>
-            <p className="text-sm font-mono text-gray-700">{integration?.config?.locationId || 'N/A'}</p>
+            <p className="text-sm font-mono text-gray-700">{String(integration?.config?.locationId || 'N/A')}</p>
           </div>
           <div>
             <p className="text-sm text-gray-500">Last Sync</p>
