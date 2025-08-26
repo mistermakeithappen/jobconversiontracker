@@ -35,7 +35,7 @@ export default function Navbar() {
               <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-blue-700 rounded-lg flex items-center justify-center">
                 <Zap className="w-5 h-5 text-white" />
               </div>
-              <span className="text-xl font-semibold text-gray-900">FlowAI</span>
+              <span className="text-xl font-semibold text-gray-900">TextCRM</span>
             </Link>
             
             <div className="hidden md:flex space-x-1">
