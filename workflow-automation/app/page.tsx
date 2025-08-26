@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import HeroSection from '@/components/landing/HeroSection';
 import ZeroTrainingSection from '@/components/landing/ZeroTrainingSection';
@@ -12,7 +12,7 @@ import ROISection from '@/components/landing/ROISection';
 import CTASection from '@/components/landing/CTASection';
 import NavigationBar from '@/components/landing/NavigationBar';
 
-export default function HomePage() {
+function RedirectHandler() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
@@ -31,8 +31,16 @@ export default function HomePage() {
       return;
     }
   }, [searchParams, router]);
+
+  return null;
+}
+
+export default function HomePage() {
   return (
     <main className="overflow-x-hidden">
+      <Suspense fallback={<div />}>
+        <RedirectHandler />
+      </Suspense>
       <NavigationBar />
       <HeroSection />
       <ZeroTrainingSection />
