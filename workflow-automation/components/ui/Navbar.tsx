@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { cn } from '@/lib/utils/cn';
-import { Zap, Building2, CreditCard, ChevronDown, Settings, LogOut } from 'lucide-react';
+import { MessageSquare, Building2, CreditCard, ChevronDown, Settings, LogOut } from 'lucide-react';
 import { useAuth } from '@/lib/auth/auth-context';
 
 const navItems = [
@@ -33,7 +33,7 @@ export default function Navbar() {
           <div className="flex items-center space-x-8">
             <Link href="/ghl" className="flex items-center space-x-2">
               <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-blue-700 rounded-lg flex items-center justify-center">
-                <Zap className="w-5 h-5 text-white" />
+                <MessageSquare className="w-5 h-5 text-white" />
               </div>
               <span className="text-xl font-semibold text-gray-900">TextCRM</span>
             </Link>
