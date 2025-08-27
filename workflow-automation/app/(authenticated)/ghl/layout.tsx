@@ -114,7 +114,9 @@ export default function GHLLayout({
             {ghlNavItems.map((item) => {
               const Icon = item.icon;
               const isActive = pathname === item.href;
-              const isInSection = pathname.startsWith(item.href + '/');
+              // For the overview tab (/ghl), only highlight when exactly on that route
+              // For other tabs, also highlight when in subsections
+              const isInSection = item.href !== '/ghl' && pathname.startsWith(item.href + '/');
               
               return (
                 <Link

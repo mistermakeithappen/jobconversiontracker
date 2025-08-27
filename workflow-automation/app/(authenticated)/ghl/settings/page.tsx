@@ -1,11 +1,12 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Settings, CreditCard, DollarSign, Users, TrendingUp } from 'lucide-react';
+import { Settings, CreditCard, DollarSign, Users, TrendingUp, RefreshCw, CheckCircle, Plus } from 'lucide-react';
 import Link from 'next/link';
 import { PipelineManualSettings } from '@/components/ghl/pipeline-manual-settings';
 import { useSubscription } from '@/hooks/useSubscription';
 import { PaywallModal } from '@/components/ui/PaywallModal';
+import { getSupabaseClient } from '@/lib/auth/client';
 
 export default function GHLSettingsPage() {
   const { hasActiveSubscription, loading: subscriptionLoading, trialEnded } = useSubscription();
@@ -17,9 +18,12 @@ export default function GHLSettingsPage() {
   });
   const [integrationId, setIntegrationId] = useState<string | null>(null);
   const [showPaywallModal, setShowPaywallModal] = useState(false);
+  const [connected, setConnected] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<'checking' | 'connected' | 'disconnected' | 'needs-reconnection'>('checking');
+  const [reconnectionReason, setReconnectionReason] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchIntegrationId();
+    checkConnectionStatus();
   }, []);
 
   useEffect(() => {
@@ -29,10 +33,10 @@ export default function GHLSettingsPage() {
       return;
     }
     
-    if (hasActiveSubscription) {
+    if (connected && hasActiveSubscription) {
       fetchStats();
     }
-  }, [hasActiveSubscription, subscriptionLoading]);
+  }, [connected, hasActiveSubscription, subscriptionLoading]);
 
   // DEBUG: Show subscription values
   console.log('🔍 SETTINGS DEBUG:', {
@@ -106,6 +110,59 @@ export default function GHLSettingsPage() {
       </div>
     );
   }
+
+  const checkConnectionStatus = async () => {
+    try {
+      const supabase = getSupabaseClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      const response = await fetch('/api/integrations/automake/status', {
+        headers: session ? {
+          'Authorization': `Bearer ${session.access_token}`,
+        } : {}
+      });
+      const data = await response.json();
+      
+      if (data.needsReconnection) {
+        setConnectionStatus('needs-reconnection');
+        setReconnectionReason(data.reconnectionReason || 'Your GoHighLevel connection needs to be re-authorized.');
+        setConnected(false);
+      } else {
+        setConnected(data.connected);
+        setConnectionStatus(data.connected ? 'connected' : 'disconnected');
+      }
+      
+      if (data.integration?.id) {
+        setIntegrationId(data.integration.id);
+      }
+    } catch (error) {
+      console.error('Error checking GHL connection:', error);
+      setConnectionStatus('disconnected');
+    }
+  };
+
+  const handleConnect = async () => {
+    try {
+      const supabase = getSupabaseClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      const response = await fetch('/api/integrations/automake/connect', {
+        headers: session ? {
+          'Authorization': `Bearer ${session.access_token}`,
+        } : {}
+      });
+      const data = await response.json();
+
+      if (response.ok && data.authUrl) {
+        window.location.href = data.authUrl;
+      } else {
+        alert('Failed to initiate connection to GoHighLevel');
+      }
+    } catch (error) {
+      console.error('Error connecting to GHL:', error);
+      alert('Error connecting to GoHighLevel');
+    }
+  };
 
   const fetchIntegrationId = async () => {
     try {
@@ -181,14 +238,76 @@ export default function GHLSettingsPage() {
     }
   ];
 
+  if (connectionStatus === 'checking') {
+    return (
+      <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
+        <RefreshCw className="w-8 h-8 animate-spin text-gray-400 mx-auto mb-2" />
+        <p className="text-gray-500">Checking connection status...</p>
+      </div>
+    );
+  }
+
+  if (connectionStatus === 'disconnected') {
+    return (
+      <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
+        <Settings className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+        <h3 className="text-xl font-semibold text-gray-900 mb-2">Connect GoHighLevel to access settings</h3>
+        <p className="text-gray-500 mb-6 max-w-md mx-auto">
+          Link your GHL account to configure admin settings, payment structures, and employee configurations
+        </p>
+        <button
+          onClick={handleConnect}
+          className="inline-flex items-center space-x-2 px-6 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors"
+        >
+          <Plus className="w-5 h-5" />
+          <span>Connect GoHighLevel</span>
+        </button>
+      </div>
+    );
+  }
+
+  if (connectionStatus === 'needs-reconnection') {
+    return (
+      <div className="bg-white rounded-xl border border-gray-200 p-12">
+        <div className="max-w-md mx-auto text-center">
+          <div className="w-16 h-16 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <svg className="w-8 h-8 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+          </div>
+          <h3 className="text-xl font-semibold text-gray-900 mb-2">GoHighLevel Reconnection Required</h3>
+          <p className="text-gray-600 mb-6">
+            {reconnectionReason}
+          </p>
+          <button
+            onClick={handleConnect}
+            className="inline-flex items-center space-x-2 px-6 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors"
+          >
+            <RefreshCw className="w-5 h-5" />
+            <span>Reconnect to GoHighLevel</span>
+          </button>
+          <p className="text-sm text-gray-500 mt-4">
+            You will be redirected to GoHighLevel to re-authorize the connection
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-8">
       {/* Header */}
-      <div>
-        <h2 className="text-2xl font-bold text-gray-900">Admin Settings</h2>
-        <p className="text-gray-600">
-          Manage company-wide settings, payment structures, and employee configurations
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900">Admin Settings</h2>
+          <p className="text-gray-600">
+            Manage company-wide settings, payment structures, and employee configurations
+          </p>
+        </div>
+        <span className="flex items-center space-x-2 text-sm text-green-600">
+          <CheckCircle className="w-4 h-4" />
+          <span>Connected</span>
+        </span>
       </div>
 
       {/* Admin Notice */}
