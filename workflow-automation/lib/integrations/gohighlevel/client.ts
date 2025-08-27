@@ -9,6 +9,7 @@ export interface GHLTokens {
   locationId: string;
   companyId: string;
   userId: string;
+  enableMCP?: boolean;  // Optional flag to enable/disable MCP
 }
 
 export class GHLClient {
@@ -26,6 +27,11 @@ export class GHLClient {
     this.expiresAt = tokens.expiresAt;
     this.locationId = tokens.locationId || '';
     this.onTokenRefresh = onTokenRefresh;
+    
+    // Allow disabling MCP via constructor option
+    if (tokens.enableMCP === false) {
+      this.mcpEnabled = false;
+    }
     
     if (!this.locationId) {
       console.warn('GHL Client initialized without locationId - some API calls may fail');
@@ -261,8 +267,9 @@ export class GHLClient {
     query?: string;
     locationId?: string;
   }) {
-    // Try MCP first if available
-    if (this.mcpEnabled && this.mcpClient) {
+    // Skip MCP if explicitly disabled or if pagination params are provided
+    // MCP doesn't support proper pagination needed for syncing all contacts
+    if (this.mcpEnabled && this.mcpClient && !params?.startAfterId && !params?.startAfter) {
       try {
         const result = await this.mcpClient.getContacts({
           limit: params?.limit,
@@ -270,6 +277,7 @@ export class GHLClient {
         });
         return result;
       } catch (error) {
+        // Fall through to REST API
       }
     }
     const queryParams = new URLSearchParams({
@@ -278,6 +286,24 @@ export class GHLClient {
       ...(params?.startAfterId && { startAfterId: params.startAfterId }),
       ...(params?.startAfter && { startAfter: String(params.startAfter) }),
       ...(params?.query && { query: params.query }),
+    });
+
+    return this.makeRequest(`${GHL_ENDPOINTS.contacts.list}?${queryParams}`);
+  }
+
+  // Direct REST API method for contact sync - bypasses MCP entirely
+  async getContactsForSync(params?: {
+    limit?: number;
+    startAfterId?: string;
+    startAfter?: number;
+    locationId?: string;
+  }) {
+    // ALWAYS use REST API for sync operations - never use MCP
+    const queryParams = new URLSearchParams({
+      locationId: params?.locationId || this.locationId,
+      limit: String(params?.limit || 100), // GHL supports up to 100
+      ...(params?.startAfterId && { startAfterId: params.startAfterId }),
+      ...(params?.startAfter && { startAfter: String(params.startAfter) }),
     });
 
     return this.makeRequest(`${GHL_ENDPOINTS.contacts.list}?${queryParams}`);

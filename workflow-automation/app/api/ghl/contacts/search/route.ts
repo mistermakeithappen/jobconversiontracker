@@ -2,12 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServiceSupabase } from '@/lib/supabase/client';
 import { requireAuth } from '@/lib/auth/production-auth-server';
 import { getUserOrganization } from '@/lib/auth/organization-helper';
-import { requireSubscription } from '@/lib/utils/subscription-utils';
 
 export async function GET(request: NextRequest) {
   try {
-    // Check subscription before proceeding
-    const { userId } = await requireSubscription(request);
+    // Get auth without subscription requirement for contact search
+    const { userId } = await requireAuth(request);
     const organization = await getUserOrganization(userId);
     
     if (!organization) {

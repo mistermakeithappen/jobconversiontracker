@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/lib/auth/auth-context';
-import { Calculator, RefreshCw, Search, User, Calendar, Clock, Send, CheckCircle, XCircle, AlertTriangle, Eye } from 'lucide-react';
+import { Calculator, RefreshCw, Search, User, Calendar, Clock, Send, CheckCircle, XCircle, AlertTriangle, Eye, Plus } from 'lucide-react';
+import EstimateBuilder from '@/components/ghl/sales/EstimateBuilder';
 
 interface Estimate {
   id: string;
@@ -66,6 +67,8 @@ export default function EstimatesManagement() {
   const [integrations, setIntegrations] = useState<any[]>([]);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [stats, setStats] = useState<EstimateStats | null>(null);
+  const [showEstimateBuilder, setShowEstimateBuilder] = useState(false);
+  const [editingEstimate, setEditingEstimate] = useState<any>(null);
 
   useEffect(() => {
     if (user) {
@@ -251,6 +254,16 @@ export default function EstimatesManagement() {
         </div>
         
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => {
+              setEditingEstimate(null);
+              setShowEstimateBuilder(true);
+            }}
+            className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Create Estimate</span>
+          </button>
           <button
             onClick={handleRefresh}
             disabled={refreshing}
@@ -461,13 +474,26 @@ export default function EstimatesManagement() {
                       )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <button
-                        onClick={() => setSelectedEstimate(estimate)}
-                        className="text-green-600 hover:text-green-900 flex items-center"
-                      >
-                        <Eye className="w-4 h-4 mr-1" />
-                        View
-                      </button>
+                      <div className="flex items-center space-x-3">
+                        <button
+                          onClick={() => setSelectedEstimate(estimate)}
+                          className="text-green-600 hover:text-green-900 flex items-center"
+                        >
+                          <Eye className="w-4 h-4 mr-1" />
+                          View
+                        </button>
+                        {estimate.status === 'draft' && (
+                          <button
+                            onClick={() => {
+                              setEditingEstimate(estimate);
+                              setShowEstimateBuilder(true);
+                            }}
+                            className="text-blue-600 hover:text-blue-900"
+                          >
+                            Edit
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -569,6 +595,50 @@ export default function EstimatesManagement() {
       <div className="text-center text-sm text-gray-500">
         Showing {filteredEstimates.length} of {totalCount} estimates
       </div>
+
+      {/* Estimate Builder Modal */}
+      {showEstimateBuilder && (
+        <EstimateBuilder
+          estimate={editingEstimate}
+          integrationId={selectedIntegration}
+          onClose={() => {
+            setShowEstimateBuilder(false);
+            setEditingEstimate(null);
+          }}
+          onSave={async (estimateData) => {
+            try {
+              const endpoint = editingEstimate 
+                ? `/api/sales/estimates/${editingEstimate.id}/update`
+                : '/api/sales/estimates/create';
+              
+              const method = editingEstimate ? 'PUT' : 'POST';
+              
+              const response = await fetch(endpoint, {
+                method,
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({
+                  ...estimateData,
+                  integration_id: selectedIntegration
+                })
+              });
+
+              if (response.ok) {
+                await fetchEstimates();
+                setShowEstimateBuilder(false);
+                setEditingEstimate(null);
+              } else {
+                const error = await response.json();
+                console.error('Error saving estimate:', error);
+                alert('Failed to save estimate: ' + (error.error || 'Unknown error'));
+              }
+            } catch (error) {
+              console.error('Error saving estimate:', error);
+              alert('Failed to save estimate. Please try again.');
+            }
+          }}
+        />
+      )}
     </div>
   );
 }
