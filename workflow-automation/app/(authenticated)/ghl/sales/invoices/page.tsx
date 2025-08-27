@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/lib/auth/auth-context';
-import { FileText, RefreshCw, Search, Filter, DollarSign, Calendar, User, AlertCircle, CheckCircle, Clock, XCircle, Download } from 'lucide-react';
+import { FileText, RefreshCw, Search, Filter, DollarSign, Calendar, User, AlertCircle, CheckCircle, Clock, XCircle, Download, Plus } from 'lucide-react';
+import InvoiceBuilder from '@/components/ghl/sales/InvoiceBuilder';
 
 interface Invoice {
   id: string;
@@ -61,12 +62,14 @@ export default function InvoicesManagement() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [stats, setStats] = useState<InvoiceStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [integrationsLoading, setIntegrationsLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [selectedIntegration, setSelectedIntegration] = useState<string>('');
   const [integrations, setIntegrations] = useState<any[]>([]);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [showInvoiceBuilder, setShowInvoiceBuilder] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -81,6 +84,7 @@ export default function InvoicesManagement() {
   }, [selectedIntegration, statusFilter]);
 
   const fetchIntegrations = async () => {
+    setIntegrationsLoading(true);
     try {
       const response = await fetch('/api/integrations/automake/status', {
         credentials: 'include'
@@ -88,20 +92,35 @@ export default function InvoicesManagement() {
       
       if (response.ok) {
         const data = await response.json();
-        // The status endpoint returns a single integration, not an array
-        if (data.connected && data.integration) {
-          setIntegrations([data.integration]);
-          setSelectedIntegration(data.integration.id);
+        console.log('GHL Integration status for invoices:', data);
+        
+        if (data.connected && data.integrationId) {
+          // Create a mock integration object for consistency with the existing logic
+          const integration = {
+            id: data.integrationId,
+            name: 'GoHighLevel',
+            type: 'gohighlevel',
+            ...data.integration
+          };
+          setIntegrations([integration]);
+          setSelectedIntegration(data.integrationId);
         } else {
+          console.log('GHL not connected or missing integrationId:', {
+            connected: data.connected,
+            integrationId: data.integrationId,
+            needsReconnection: data.needsReconnection
+          });
           setIntegrations([]);
         }
       } else {
-        console.error('Failed to fetch integrations:', response.status);
+        console.error('Failed to fetch integrations:', response.status, response.statusText);
         setIntegrations([]);
       }
     } catch (error) {
       console.error('Error fetching integrations:', error);
       setIntegrations([]);
+    } finally {
+      setIntegrationsLoading(false);
     }
   };
 
@@ -250,14 +269,38 @@ export default function InvoicesManagement() {
     window.URL.revokeObjectURL(url);
   };
 
+  // Show loading state while checking integrations
+  if (integrationsLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="flex items-center space-x-2">
+          <RefreshCw className="w-6 h-6 animate-spin text-blue-600" />
+          <span className="text-gray-600">Checking GoHighLevel connection...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // Show no integration message only after we've checked
   if (!selectedIntegration && integrations.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
           <p className="text-gray-500 mb-4">No GoHighLevel integration found</p>
-          <a href="/ghl/settings" className="text-indigo-600 hover:text-indigo-500">
-            Connect GoHighLevel →
-          </a>
+          <p className="text-sm text-gray-400 mb-4">
+            If you've recently connected GHL, try refreshing the page or check your connection status.
+          </p>
+          <div className="space-y-2">
+            <a href="/ghl/settings" className="block text-indigo-600 hover:text-indigo-500">
+              Connect GoHighLevel →
+            </a>
+            <button 
+              onClick={() => window.location.reload()} 
+              className="text-gray-600 hover:text-gray-800 text-sm"
+            >
+              Refresh Page
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -280,6 +323,14 @@ export default function InvoicesManagement() {
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold text-gray-900">Invoices</h1>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowInvoiceBuilder(true)}
+            disabled={!selectedIntegration}
+            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            Create Invoice
+          </button>
           <button
             onClick={exportInvoices}
             className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
@@ -473,6 +524,40 @@ export default function InvoicesManagement() {
           </div>
         )}
       </div>
+
+      {/* Invoice Builder Modal */}
+      {showInvoiceBuilder && (
+        <InvoiceBuilder
+          integrationId={selectedIntegration}
+          onClose={() => setShowInvoiceBuilder(false)}
+          onSave={async (invoiceData) => {
+            try {
+              const response = await fetch('/api/sales/invoices/create', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({
+                  ...invoiceData,
+                  integration_id: selectedIntegration
+                })
+              });
+
+              if (response.ok) {
+                setShowInvoiceBuilder(false);
+                fetchInvoices(); // Refresh the invoices list
+                console.log('Invoice created successfully');
+              } else {
+                const error = await response.json();
+                console.error('Error creating invoice:', error);
+                alert('Failed to create invoice: ' + (error.error || 'Unknown error'));
+              }
+            } catch (error) {
+              console.error('Error creating invoice:', error);
+              alert('Failed to create invoice. Please try again.');
+            }
+          }}
+        />
+      )}
     </div>
   );
 }

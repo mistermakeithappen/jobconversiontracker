@@ -2,8 +2,10 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { DollarSign, Receipt, TrendingUp, TrendingDown, MoreVertical, Plus, FileText, ChevronDown, Building2, Camera, User, AlertCircle, Settings, ArrowRight } from 'lucide-react';
+import { DollarSign, Receipt, TrendingUp, TrendingDown, MoreVertical, Plus, FileText, ChevronDown, Building2, Camera, User, AlertCircle, Settings, ArrowRight, Calculator, CreditCard } from 'lucide-react';
 import { ReceiptModal } from './receipt-modal';
+import EstimateBuilder from '@/components/ghl/sales/EstimateBuilder';
+import InvoiceBuilder from '@/components/ghl/sales/InvoiceBuilder';
 import { getSupabaseClient } from '@/lib/auth/client';
 import { getUserColor, getInitials } from '@/lib/utils/user-colors';
 
@@ -101,6 +103,10 @@ export function OpportunitiesPipelineView({
   const [selectedOpportunity, setSelectedOpportunity] = useState<Opportunity | null>(null);
   const [showReceiptModal, setShowReceiptModal] = useState(false);
   const [uploadingFor, setUploadingFor] = useState<string | null>(null);
+  const [showEstimateBuilder, setShowEstimateBuilder] = useState(false);
+  const [estimateOpportunity, setEstimateOpportunity] = useState<Opportunity | null>(null);
+  const [showInvoiceBuilder, setShowInvoiceBuilder] = useState(false);
+  const [invoiceOpportunity, setInvoiceOpportunity] = useState<Opportunity | null>(null);
 
   // Filter opportunities by pipeline
   const filteredOpportunities = opportunities.filter(opp => 
@@ -488,14 +494,13 @@ export function OpportunitiesPipelineView({
                     {stageOpportunities.map((opportunity) => (
                       <div
                         key={opportunity.id}
-                        className="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md transition-shadow cursor-pointer"
-                        onClick={() => {
-                          setSelectedOpportunity(opportunity);
-                          setShowReceiptModal(true);
-                        }}
+                        className="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md transition-shadow"
                       >
                         <div className="flex items-start justify-between mb-2">
-                          <div className="flex-1">
+                          <div className="flex-1 cursor-pointer" onClick={() => {
+                            setSelectedOpportunity(opportunity);
+                            setShowReceiptModal(true);
+                          }}>
                             <h4 className="font-medium text-gray-900 line-clamp-1">{opportunity.name}</h4>
                             <p className="text-sm text-gray-600">{opportunity.contactName}</p>
                             {opportunity.assignedToName && (
@@ -516,15 +521,43 @@ export function OpportunitiesPipelineView({
                               </div>
                             )}
                           </div>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              // Add dropdown menu here if needed
-                            }}
-                            className="p-1 hover:bg-gray-100 rounded"
-                          >
-                            <MoreVertical className="w-4 h-4 text-gray-500" />
-                          </button>
+                          
+                          {/* Action Buttons */}
+                          <div className="flex items-center space-x-2">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEstimateOpportunity(opportunity);
+                                setShowEstimateBuilder(true);
+                              }}
+                              className="flex items-center space-x-1 px-2 py-1 bg-green-100 text-green-700 rounded-md hover:bg-green-200 transition-colors text-xs"
+                              title="Create Estimate"
+                            >
+                              <Calculator className="w-3 h-3" />
+                              <span>Estimate</span>
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setInvoiceOpportunity(opportunity);
+                                setShowInvoiceBuilder(true);
+                              }}
+                              className="flex items-center space-x-1 px-2 py-1 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 transition-colors text-xs"
+                              title="Create Invoice"
+                            >
+                              <CreditCard className="w-3 h-3" />
+                              <span>Invoice</span>
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                // Add dropdown menu here if needed
+                              }}
+                              className="p-1 hover:bg-gray-100 rounded"
+                            >
+                              <MoreVertical className="w-4 h-4 text-gray-500" />
+                            </button>
+                          </div>
                         </div>
                         
                         <div className="space-y-2">
@@ -605,6 +638,88 @@ export function OpportunitiesPipelineView({
             setSelectedOpportunity(null);
           }}
           onUpdate={onRefresh}
+        />
+      )}
+    
+      {/* Estimate Builder Modal */}
+      {showEstimateBuilder && estimateOpportunity && (
+        <EstimateBuilder
+          contactId={estimateOpportunity.id} // Using opportunity ID as contact identifier
+          contactName={estimateOpportunity.contactName}
+          opportunityId={estimateOpportunity.id}
+          integrationId={integrationId}
+          onClose={() => {
+            setShowEstimateBuilder(false);
+            setEstimateOpportunity(null);
+          }}
+          onSave={async (estimateData) => {
+            try {
+              const response = await fetch('/api/sales/estimates/create', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({
+                  ...estimateData,
+                  integration_id: integrationId
+                })
+              });
+
+              if (response.ok) {
+                setShowEstimateBuilder(false);
+                setEstimateOpportunity(null);
+                console.log('Estimate created successfully from opportunity');
+              } else {
+                const error = await response.json();
+                console.error('Error creating estimate:', error);
+                alert('Failed to create estimate: ' + (error.error || 'Unknown error'));
+              }
+            } catch (error) {
+              console.error('Error creating estimate:', error);
+              alert('Failed to create estimate. Please try again.');
+            }
+          }}
+        />
+      )}
+
+      {/* Invoice Builder Modal */}
+      {showInvoiceBuilder && invoiceOpportunity && (
+        <InvoiceBuilder
+          contactId={invoiceOpportunity.id} // Using opportunity ID as contact identifier
+          contactName={invoiceOpportunity.contactName}
+          opportunityId={invoiceOpportunity.id}
+          integrationId={integrationId}
+          onClose={() => {
+            setShowInvoiceBuilder(false);
+            setInvoiceOpportunity(null);
+          }}
+          onSave={async (invoiceData) => {
+            try {
+              const response = await fetch('/api/sales/invoices/create', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({
+                  ...invoiceData,
+                  integration_id: integrationId
+                })
+              });
+
+              if (response.ok) {
+                setShowInvoiceBuilder(false);
+                setInvoiceOpportunity(null);
+                console.log('Invoice created successfully from opportunity');
+                // Optionally refresh the opportunities to show updated data
+                onRefresh();
+              } else {
+                const error = await response.json();
+                console.error('Error creating invoice:', error);
+                alert('Failed to create invoice: ' + (error.error || 'Unknown error'));
+              }
+            } catch (error) {
+              console.error('Error creating invoice:', error);
+              alert('Failed to create invoice. Please try again.');
+            }
+          }}
         />
       )}
     </div>

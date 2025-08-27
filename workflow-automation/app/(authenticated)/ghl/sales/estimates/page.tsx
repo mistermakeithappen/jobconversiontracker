@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/lib/auth/auth-context';
-import { Calculator, RefreshCw, Search, User, Calendar, Clock, Send, CheckCircle, XCircle, AlertTriangle, Eye, Plus } from 'lucide-react';
+import { Calculator, RefreshCw, Search, User, Calendar, Clock, Send, CheckCircle, XCircle, AlertTriangle, Eye, Plus, Settings } from 'lucide-react';
 import EstimateBuilder from '@/components/ghl/sales/EstimateBuilder';
 
 interface Estimate {
@@ -57,6 +57,7 @@ export default function EstimatesManagement() {
   const { user } = useAuth();
   const [estimates, setEstimates] = useState<Estimate[]>([]);
   const [loading, setLoading] = useState(true);
+  const [integrationsLoading, setIntegrationsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -83,6 +84,7 @@ export default function EstimatesManagement() {
   }, [selectedIntegration, statusFilter]);
 
   const fetchIntegrations = async () => {
+    setIntegrationsLoading(true);
     try {
       const response = await fetch('/api/integrations/automake/status', {
         credentials: 'include'
@@ -90,20 +92,35 @@ export default function EstimatesManagement() {
       
       if (response.ok) {
         const data = await response.json();
-        // The status endpoint returns a single integration, not an array
-        if (data.connected && data.integration) {
-          setIntegrations([data.integration]);
-          setSelectedIntegration(data.integration.id);
+        console.log('GHL Integration status:', data);
+        
+        if (data.connected && data.integrationId) {
+          // Create a mock integration object for consistency with the existing logic
+          const integration = {
+            id: data.integrationId,
+            name: 'GoHighLevel',
+            type: 'gohighlevel',
+            ...data.integration
+          };
+          setIntegrations([integration]);
+          setSelectedIntegration(data.integrationId);
         } else {
+          console.log('GHL not connected or missing integrationId:', {
+            connected: data.connected,
+            integrationId: data.integrationId,
+            needsReconnection: data.needsReconnection
+          });
           setIntegrations([]);
         }
       } else {
-        console.error('Failed to fetch integrations:', response.status);
+        console.error('Failed to fetch integrations:', response.status, response.statusText);
         setIntegrations([]);
       }
     } catch (error) {
       console.error('Error fetching integrations:', error);
       setIntegrations([]);
+    } finally {
+      setIntegrationsLoading(false);
     }
   };
 
@@ -215,14 +232,38 @@ export default function EstimatesManagement() {
     return total === 0 ? 0 : Math.round((accepted / total) * 100);
   };
 
+  // Show loading state while checking integrations
+  if (integrationsLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="flex items-center space-x-2">
+          <RefreshCw className="w-6 h-6 animate-spin text-blue-600" />
+          <span className="text-gray-600">Checking GoHighLevel connection...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // Show no integration message only after we've checked
   if (!selectedIntegration && integrations.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
           <p className="text-gray-500 mb-4">No GoHighLevel integration found</p>
-          <a href="/ghl/settings" className="text-indigo-600 hover:text-indigo-500">
-            Connect GoHighLevel →
-          </a>
+          <p className="text-sm text-gray-400 mb-4">
+            If you've recently connected GHL, try refreshing the page or check your connection status.
+          </p>
+          <div className="space-y-2">
+            <a href="/ghl/settings" className="block text-indigo-600 hover:text-indigo-500">
+              Connect GoHighLevel →
+            </a>
+            <button 
+              onClick={() => window.location.reload()} 
+              className="text-gray-600 hover:text-gray-800 text-sm"
+            >
+              Refresh Page
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -254,6 +295,13 @@ export default function EstimatesManagement() {
         </div>
         
         <div className="flex items-center gap-2">
+          <a
+            href="/ghl/sales/estimates/settings"
+            className="flex items-center space-x-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+          >
+            <Settings className="w-4 h-4" />
+            <span>Settings</span>
+          </a>
           <button
             onClick={() => {
               setEditingEstimate(null);

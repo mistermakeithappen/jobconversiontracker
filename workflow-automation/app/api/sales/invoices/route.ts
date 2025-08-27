@@ -21,27 +21,24 @@ export async function GET(request: NextRequest) {
     const contactId = searchParams.get('contactId');
     const opportunityId = searchParams.get('opportunityId');
 
+    // Try to query from ghl_invoices table first, fall back to empty array if not exists
     let query = supabase
-      .from('commission_events')
+      .from('ghl_invoices')
       .select('*')
       .eq('organization_id', organization.organizationId)
-      .eq('event_source', 'invoice')
-      .order('event_date', { ascending: false });
+      .order('created_at', { ascending: false });
 
-    // Note: commission_events table doesn't have integration_id column
-    // We'll filter by checking event_data.integration_id if needed
     if (integrationId) {
-      // For now, we'll fetch all and filter in memory
-      console.log('Note: Filtering by integration_id will be done in memory');
+      query = query.eq('integration_id', integrationId);
     }
     if (status) {
       query = query.eq('status', status);
     }
     if (startDate) {
-      query = query.gte('event_date', startDate);
+      query = query.gte('invoice_date', startDate);
     }
     if (endDate) {
-      query = query.lte('event_date', endDate);
+      query = query.lte('invoice_date', endDate);
     }
     if (contactId) {
       query = query.eq('contact_id', contactId);
@@ -54,15 +51,31 @@ export async function GET(request: NextRequest) {
 
     if (error) {
       console.error('Error fetching invoices:', error);
+      // If table doesn't exist, return empty results instead of error
+      if (error.code === 'PGRST205' || error.message?.includes('does not exist')) {
+        console.log('Invoices table not found, returning empty results');
+        return NextResponse.json({
+          invoices: [],
+          stats: {
+            totalInvoices: 0,
+            totalAmount: 0,
+            totalPaid: 0,
+            totalDue: 0,
+            byStatus: {
+              draft: 0, sent: 0, viewed: 0, paid: 0, partially_paid: 0, overdue: 0, void: 0
+            }
+          }
+        });
+      }
       return NextResponse.json({ error: 'Failed to fetch invoices' }, { status: 500 });
     }
 
-    // Transform commission events to invoice format
-    let filteredEvents = events || [];
+    // Transform invoice data
+    let filteredInvoices = events || [];
     
     // Get all unique contact IDs
-    const contactIds = [...new Set(filteredEvents
-      .map(event => event.contact_id)
+    const contactIds = [...new Set(filteredInvoices
+      .map(invoice => invoice.contact_id)
       .filter(id => id))] as string[];
     
     // Fetch contact information if we have contact IDs
@@ -81,37 +94,30 @@ export async function GET(request: NextRequest) {
       }
     }
     
-    // Filter by integration_id if provided
-    if (integrationId) {
-      filteredEvents = filteredEvents.filter(event => 
-        event.event_data?.integration_id === integrationId
-      );
-    }
-    
-    const invoices = filteredEvents.map(event => {
-      const contact = contactsMap.get(event.contact_id);
+    const invoices = filteredInvoices.map(invoice => {
+      const contact = contactsMap.get(invoice.contact_id);
       return {
-        id: event.id,
-        invoice_id: event.invoice_id,
-        invoice_number: event.event_data?.invoice_number || 'N/A',
-        invoice_date: event.event_date,
-        opportunity_id: event.opportunity_id,
-        contact_id: event.contact_id,
+        id: invoice.id,
+        invoice_id: invoice.ghl_invoice_id || invoice.invoice_id,
+        invoice_number: invoice.invoice_number || 'N/A',
+        invoice_date: invoice.invoice_date || invoice.created_at,
+        opportunity_id: invoice.opportunity_id,
+        contact_id: invoice.contact_id,
         contact_name: contact ? 
           (contact.first_name || contact.last_name ? 
             `${contact.first_name || ''} ${contact.last_name || ''}`.trim() : 
             contact.full_name) : 
-          null,
-        contact_email: contact?.email || null,
-        amount: event.event_amount,
-        amount_paid: event.event_data?.amount_paid || 0,
-        amount_due: event.event_data?.amount_due || 0,
-        status: event.event_data?.status || 'unknown',
-        currency: event.currency,
-        due_date: event.event_data?.due_date,
-        sent_date: event.event_data?.sent_date,
-        notes: event.event_data?.notes,
-        event_type: event.event_type
+          invoice.contact_name,
+        contact_email: contact?.email || invoice.contact_email,
+        amount: invoice.amount || 0,
+        amount_paid: invoice.amount_paid || 0,
+        amount_due: invoice.amount_due || (invoice.amount - (invoice.amount_paid || 0)),
+        status: invoice.status || 'unknown',
+        currency: invoice.currency || 'USD',
+        due_date: invoice.due_date,
+        sent_date: invoice.sent_date,
+        notes: invoice.notes,
+        event_type: 'invoice'
       };
     }) || [];
 
