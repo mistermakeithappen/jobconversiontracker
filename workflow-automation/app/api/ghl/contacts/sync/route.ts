@@ -4,12 +4,11 @@ import { requireAuth } from '@/lib/auth/production-auth-server';
 import { GHLClient } from '@/lib/integrations/gohighlevel/client';
 import { decrypt, encrypt } from '@/lib/utils/encryption';
 import { getUserOrganization } from '@/lib/auth/organization-helper';
-import { requireSubscription } from '@/lib/utils/subscription-utils';
 
 export async function POST(request: NextRequest) {
   try {
-    // Check subscription before proceeding
-    const { userId } = await requireSubscription(request);
+    // Get auth without subscription requirement for contact sync
+    const { userId } = await requireAuth(request);
     const organization = await getUserOrganization(userId);
     
     if (!organization) {
@@ -122,31 +121,41 @@ async function syncContactsInBackground(
         .eq('id', integration.id);
     });
 
-    // Don't use MCP for contact sync as it doesn't support proper pagination
-    // MCP returns only 20 contacts at a time without proper pagination support
-    console.log('📌 Using REST API for contact sync (MCP pagination not supported)');
-
+    // IMPORTANT: Using direct REST API for contact sync - MCP is not suitable for bulk operations
+    console.log('📌 Using direct REST API for contact sync');
     console.log(`🔄 Starting contact sync for location ${integration.config.locationId}`);
 
-    // Get existing contacts to determine what needs updating
+    // Get ALL existing contacts to track what needs updating and what should be deleted
+    // Include origin field to identify locally-created contacts
     const { data: existingContacts } = await supabase
       .from('contacts')
-      .select('ghl_contact_id, ghl_updated_at')
+      .select('id, ghl_contact_id, ghl_updated_at, origin, phone, email')
       .eq('integration_id', integration.id)
       .eq('sync_status', 'synced');
 
     const existingMap = new Map(
-      existingContacts?.map(c => [c.ghl_contact_id, c.ghl_updated_at]) || []
+      existingContacts?.map(c => [c.ghl_contact_id, c]) || []
     );
+    
+    // Track which contacts we've seen during sync (for deletion tracking)
+    const seenContactIds = new Set<string>();
 
-    // Fetch contacts in batches
+    // Fetch contacts in batches - continue until no more contacts
     let hasMore = true;
     let startAfterId: string | undefined;
     let startAfter: number | undefined;
+    let batchNumber = 0;
+    const MAX_RETRIES = 3;
+    let retryCount = 0;
+    let lastBatchFirstId: string | undefined;  // Track to detect if we're stuck
     
     while (hasMore) {
       try {
-        const response = await client.getContacts({
+        batchNumber++;
+        console.log(`🔄 Fetching batch ${batchNumber} (startAfterId: ${startAfterId || 'none'})`);
+        
+        // Use dedicated sync method that bypasses MCP entirely
+        const response = await client.getContactsForSync({
           limit: 100,
           startAfterId,
           startAfter
@@ -157,34 +166,54 @@ async function syncContactsInBackground(
         const meta = response?.meta;
 
         if (!batch || !Array.isArray(batch) || batch.length === 0) {
+          console.log('📍 Empty batch received - sync complete');
           hasMore = false;
           break;
         }
+        
+        // Check if we're stuck in a loop (getting the same batch)
+        if (batch.length > 0 && lastBatchFirstId === batch[0].id) {
+          console.log('⚠️ Detected pagination loop - stopping sync');
+          hasMore = false;
+          break;
+        }
+        lastBatchFirstId = batch[0].id;
 
-        console.log(`📦 Processing batch of ${batch.length} contacts...`);
-        console.log(`   Meta info:`, meta ? { 
-          total: meta.total, 
-          currentPage: meta.currentPage, 
-          nextPage: meta.nextPage,
-          startAfterId: meta.startAfterId,
-          startAfter: meta.startAfter 
-        } : 'No meta data');
+        console.log(`📦 Processing batch ${batchNumber}: ${batch.length} contacts`);
+        if (meta) {
+          console.log(`   Pagination: startAfterId=${meta.startAfterId || 'none'}, total=${meta.total || 'unknown'}`);
+        }
+        
+        // Log first contact to see structure (only once)
+        if (batchNumber === 1 && batch.length > 0) {
+          console.log('Sample contact structure:', JSON.stringify(batch[0], null, 2));
+        }
 
         // Process each contact
         for (const contact of batch) {
           processed++;
           
           try {
+            // Track that we've seen this contact
+            seenContactIds.add(contact.id);
+            
             const isNew = !existingMap.has(contact.id);
+            
+            // Extract name from various possible fields
+            const firstName = contact.firstName || contact.firstNameRaw || contact.first_name || '';
+            const lastName = contact.lastName || contact.lastNameRaw || contact.last_name || '';
+            const fullName = contact.contactName || contact.name || contact.full_name || 
+                           `${firstName} ${lastName}`.trim() || 
+                           contact.email || contact.phone || 'Unknown';
             
             const contactData = {
               organization_id: organization.organizationId,
               integration_id: integration.id,
               ghl_contact_id: contact.id,
               ghl_location_id: integration.config.locationId,
-              first_name: contact.firstName || contact.firstNameRaw,
-              last_name: contact.lastName || contact.lastNameRaw,
-              full_name: contact.contactName || `${contact.firstName || ''} ${contact.lastName || ''}`.trim(),
+              first_name: firstName,
+              last_name: lastName,
+              full_name: fullName,
               email: contact.email,
               phone: contact.phone,
               company_name: contact.companyName,
@@ -197,14 +226,19 @@ async function syncContactsInBackground(
               custom_fields: contact.customFields || {},
               source: contact.source,
               sync_status: 'synced',
+              origin: 'ghl',  // Mark as coming from GoHighLevel
+              needs_ghl_sync: false,  // Already in GHL, doesn't need sync
               raw_data: contact,
               ghl_created_at: contact.dateAdded,
               ghl_updated_at: contact.dateUpdated
             };
 
+            // Upsert using the unique constraint (integration_id, ghl_contact_id)
             const { data: upsertData, error } = await supabase
               .from('contacts')
-              .upsert(contactData)
+              .upsert(contactData, {
+                onConflict: 'integration_id,ghl_contact_id'
+              })
               .select();
 
             if (error) {
@@ -226,25 +260,108 @@ async function syncContactsInBackground(
           }
         }
 
-        // Set up for next batch using meta information if available
-        if (meta?.startAfterId && meta?.startAfter) {
-          startAfterId = meta.startAfterId;
-          startAfter = meta.startAfter;
-        } else {
-          // Fallback to old method if no meta
-          startAfterId = batch[batch.length - 1].id;
+        // Set up for next batch - ALWAYS use the last contact's ID for pagination
+        if (batch.length > 0) {
+          // Always use the last contact's ID for pagination
+          const lastContact = batch[batch.length - 1];
+          startAfterId = lastContact.id;
           startAfter = undefined;
-        }
-        
-        // Check if there are more pages
-        if (meta?.nextPage === null || batch.length < 100) {
+          
+          console.log(`   Next batch will start after contact ID: ${startAfterId}`);
+          
+          // Continue fetching - we'll stop when we get an empty batch
+          hasMore = true;
+          retryCount = 0; // Reset retry count on successful batch
+        } else {
+          // No more contacts to fetch
+          console.log('📍 No more contacts to fetch - sync complete');
           hasMore = false;
         }
 
       } catch (batchError) {
-        console.error('Error fetching batch:', batchError);
-        hasMore = false;
+        console.error(`Error fetching batch ${batchNumber}:`, batchError);
+        retryCount++;
+        
+        if (retryCount < MAX_RETRIES) {
+          console.log(`⚠️ Retrying batch ${batchNumber} (attempt ${retryCount + 1}/${MAX_RETRIES})`);
+          // Wait a bit before retrying
+          await new Promise(resolve => setTimeout(resolve, 2000 * retryCount));
+        } else {
+          console.error(`❌ Max retries reached for batch ${batchNumber}, stopping sync`);
+          hasMore = false;
+        }
       }
+    }
+
+    // Handle contacts that no longer exist in GHL
+    console.log('🧹 Checking for deleted contacts...');
+    const contactsToDelete = [];
+    const contactsToSync = [];
+    let deletedCount = 0;
+    let localContactsFound = 0;
+    
+    // Find contacts that exist in our DB but weren't seen in the sync
+    for (const [ghlContactId, existingContact] of existingMap) {
+      if (!seenContactIds.has(ghlContactId)) {
+        // Check if this is a locally-created contact
+        if (existingContact.origin === 'local' || existingContact.origin === 'manual') {
+          // This is a local contact that needs to be synced TO GHL
+          contactsToSync.push({
+            id: existingContact.id,
+            phone: existingContact.phone,
+            email: existingContact.email
+          });
+          localContactsFound++;
+        } else if (existingContact.origin === 'ghl' || !existingContact.origin) {
+          // This was synced from GHL but no longer exists there - safe to delete
+          contactsToDelete.push(existingContact.id);
+        }
+      }
+    }
+    
+    // Mark local contacts for sync to GHL
+    if (contactsToSync.length > 0) {
+      console.log(`📤 Found ${contactsToSync.length} locally-created contacts that need to be synced to GHL`);
+      
+      // Mark these contacts as needing sync
+      const { error: updateError } = await supabase
+        .from('contacts')
+        .update({ needs_ghl_sync: true })
+        .in('id', contactsToSync.map(c => c.id));
+      
+      if (updateError) {
+        console.error('Error marking contacts for GHL sync:', updateError);
+      } else {
+        console.log(`✅ Marked ${contactsToSync.length} local contacts for future sync to GHL`);
+      }
+    }
+    
+    // Delete only GHL-origin contacts that no longer exist
+    if (contactsToDelete.length > 0) {
+      console.log(`🗑️ Found ${contactsToDelete.length} GHL contacts to delete (no longer exist in GHL)`);
+      
+      // Delete in batches of 100
+      for (let i = 0; i < contactsToDelete.length; i += 100) {
+        const batch = contactsToDelete.slice(i, i + 100);
+        const { error: deleteError } = await supabase
+          .from('contacts')
+          .delete()
+          .in('id', batch);
+        
+        if (deleteError) {
+          console.error('Error deleting contacts:', deleteError);
+        } else {
+          deletedCount += batch.length;
+        }
+      }
+      
+      console.log(`✅ Deleted ${deletedCount} GHL contacts that no longer exist in GHL`);
+    } else {
+      console.log('✅ No GHL contacts to delete');
+    }
+    
+    if (localContactsFound > 0) {
+      console.log(`ℹ️ Preserved ${localContactsFound} locally-created contacts`);
     }
 
     // Update sync log
@@ -256,12 +373,21 @@ async function syncContactsInBackground(
           total_contacts: processed,
           synced_contacts: created + updated,
           failed_contacts: errors,
+          deleted_contacts: deletedCount,
           completed_at: new Date().toISOString()
         })
         .eq('id', syncLogId);
     }
 
-    console.log(`✅ Sync completed: ${processed} contacts processed (${created} new, ${updated} updated)`);
+    console.log(`✅ Sync completed successfully!`);
+    console.log(`📊 Final stats:`);
+    console.log(`   - Total contacts processed: ${processed}`);
+    console.log(`   - New contacts created: ${created}`);
+    console.log(`   - Existing contacts updated: ${updated}`);
+    console.log(`   - GHL contacts deleted (no longer in GHL): ${deletedCount}`);
+    console.log(`   - Local contacts preserved: ${localContactsFound}`);
+    console.log(`   - Local contacts marked for GHL sync: ${contactsToSync.length}`);
+    console.log(`   - Errors encountered: ${errors}`);
 
   } catch (error) {
     console.error('❌ Sync failed:', error);
@@ -287,8 +413,8 @@ async function syncContactsInBackground(
 // GET endpoint to check sync status
 export async function GET(request: NextRequest) {
   try {
-    // Check subscription before proceeding
-    const { userId } = await requireSubscription(request);
+    // Get auth without subscription requirement for sync status check
+    const { userId } = await requireAuth(request);
     const organization = await getUserOrganization(userId);
     
     if (!organization) {
