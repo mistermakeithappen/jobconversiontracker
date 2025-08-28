@@ -10,6 +10,9 @@ interface LineItem {
   quantity: number;
   unitPrice: number;
   total: number;
+  product_id?: string;
+  product_name?: string;
+  unit_label?: string;
 }
 
 interface Property {
@@ -66,6 +69,23 @@ export default function EstimateBuilder({
   const [showNewPropertyModal, setShowNewPropertyModal] = useState(false);
   const propertyDropdownRef = useRef<HTMLDivElement>(null);
   
+  // Product search states
+  const [productSearches, setProductSearches] = useState<{[key: string]: string}>({});
+  const [productResults, setProductResults] = useState<{[key: string]: any[]}>({});
+  const [showProductDropdowns, setShowProductDropdowns] = useState<{[key: string]: boolean}>({});
+  const [productSearchLoading, setProductSearchLoading] = useState<{[key: string]: boolean}>({});
+  const [productDebounces, setProductDebounces] = useState<{[key: string]: NodeJS.Timeout}>({});
+  const productDropdownRefs = useRef<{[key: string]: HTMLDivElement | null}>({});
+  
+  // Opportunity search states
+  const [opportunitySearch, setOpportunitySearch] = useState('');
+  const [opportunityResults, setOpportunityResults] = useState<any[]>([]);
+  const [showOpportunityDropdown, setShowOpportunityDropdown] = useState(false);
+  const [opportunitySearchLoading, setOpportunitySearchLoading] = useState(false);
+  const [selectedOpportunity, setSelectedOpportunity] = useState<any>(null);
+  const [opportunityDebounce, setOpportunityDebounce] = useState<NodeJS.Timeout | null>(null);
+  const opportunityDropdownRef = useRef<HTMLDivElement>(null);
+  
   // Form fields
   const [estimateNumber, setEstimateNumber] = useState(estimate?.estimate_number || '');
   const [estimateName, setEstimateName] = useState(estimate?.name || 'Construction Estimate');
@@ -88,26 +108,62 @@ export default function EstimateBuilder({
   // Line items
   const [lineItems, setLineItems] = useState<LineItem[]>(
     estimate?.line_items || [
-      { id: '1', description: '', quantity: 1, unitPrice: 0, total: 0 }
+      { id: '1', description: '', quantity: 1, unitPrice: 0, total: 0, product_id: undefined, product_name: undefined, unit_label: 'each' }
     ]
   );
   
   // Financial
   const [taxRate, setTaxRate] = useState(estimate?.applied_tax_rate ? estimate.applied_tax_rate * 100 : 8.25); // Default tax rate
   const [notes, setNotes] = useState(estimate?.notes || '');
-  const [terms, setTerms] = useState(estimate?.terms || 'Payment due upon completion. This estimate is valid for 30 days.');
+  const [terms, setTerms] = useState(estimate?.terms || '');
+  
+  // Hidden projection inputs for opportunity tracking (not shown to customer)
+  const [projectedMaterialsCost, setProjectedMaterialsCost] = useState(estimate?.metadata?.projected_materials_cost || 0);
+  const [projectedLaborCost, setProjectedLaborCost] = useState(estimate?.metadata?.projected_labor_cost || 0);
+  const [projectedCommissions, setProjectedCommissions] = useState(estimate?.metadata?.projected_commissions || 0);
 
   // Calculate totals
   const subtotal = lineItems.reduce((sum, item) => sum + item.total, 0);
   const taxAmount = subtotal * (taxRate / 100);
   const total = subtotal + taxAmount;
+  
+  // Calculate projected profit for opportunity tracking
+  const totalProjectedCosts = projectedMaterialsCost + projectedLaborCost + projectedCommissions;
+  const projectedProfit = total - totalProjectedCosts;
+  const projectedProfitMargin = total > 0 ? (projectedProfit / total) * 100 : 0;
 
   useEffect(() => {
     fetchOrganization();
     if (!estimate) {
       generateEstimateNumber();
     }
+    
+    // If passed an opportunity ID, set it as selected
+    if (opportunityId && !selectedOpportunity) {
+      // Could fetch opportunity details here if needed
+      setSelectedOpportunity({ id: opportunityId });
+    }
   }, []);
+
+  // Debounced opportunity search
+  useEffect(() => {
+    if (opportunitySearch.length >= 1) {
+      if (opportunityDebounce) clearTimeout(opportunityDebounce);
+      
+      const timeout = setTimeout(() => {
+        searchOpportunities(opportunitySearch);
+      }, 300);
+      
+      setOpportunityDebounce(timeout);
+    } else {
+      setOpportunityResults([]);
+      setShowOpportunityDropdown(false);
+    }
+    
+    return () => {
+      if (opportunityDebounce) clearTimeout(opportunityDebounce);
+    };
+  }, [opportunitySearch]);
 
   // Debounced contact search
   useEffect(() => {
@@ -134,6 +190,37 @@ export default function EstimateBuilder({
     const handleClickOutside = (event: MouseEvent) => {
       if (searchDropdownRef.current && !searchDropdownRef.current.contains(event.target as Node)) {
         setShowSearchDropdown(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
+  // Handle clicking outside of product dropdowns
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      Object.keys(productDropdownRefs.current).forEach(lineItemId => {
+        const ref = productDropdownRefs.current[lineItemId];
+        if (ref && !ref.contains(event.target as Node)) {
+          setShowProductDropdowns(prev => ({ ...prev, [lineItemId]: false }));
+        }
+      });
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
+  // Handle clicking outside of opportunity dropdown
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (opportunityDropdownRef.current && !opportunityDropdownRef.current.contains(event.target as Node)) {
+        setShowOpportunityDropdown(false);
       }
     };
 
@@ -247,6 +334,132 @@ export default function EstimateBuilder({
     setProjectAddress('');
   };
 
+  // Product search functions
+  const searchProducts = async (query: string, lineItemId: string) => {
+    setProductSearchLoading(prev => ({ ...prev, [lineItemId]: true }));
+    
+    try {
+      const response = await fetch(`/api/sales/products/search?q=${encodeURIComponent(query)}&limit=10`, {
+        credentials: 'include'
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setProductResults(prev => ({ ...prev, [lineItemId]: data.products || [] }));
+        setShowProductDropdowns(prev => ({ ...prev, [lineItemId]: true }));
+      }
+    } catch (error) {
+      console.error('Error searching products:', error);
+    } finally {
+      setProductSearchLoading(prev => ({ ...prev, [lineItemId]: false }));
+    }
+  };
+
+  const handleProductSearch = (query: string, lineItemId: string) => {
+    setProductSearches(prev => ({ ...prev, [lineItemId]: query }));
+    
+    if (query.length >= 1) {
+      // Clear existing timeout for this line item
+      if (productDebounces[lineItemId]) {
+        clearTimeout(productDebounces[lineItemId]);
+      }
+      
+      // Set new timeout
+      const timeout = setTimeout(() => {
+        searchProducts(query, lineItemId);
+      }, 300);
+      
+      setProductDebounces(prev => ({ ...prev, [lineItemId]: timeout }));
+    } else {
+      setProductResults(prev => ({ ...prev, [lineItemId]: [] }));
+      setShowProductDropdowns(prev => ({ ...prev, [lineItemId]: false }));
+    }
+  };
+
+  const selectProduct = (product: any, lineItemId: string) => {
+    // Update the line item with product details
+    setLineItems(lineItems.map(item => {
+      if (item.id === lineItemId) {
+        return {
+          ...item,
+          product_id: product.id,
+          product_name: product.name,
+          description: product.name,
+          unitPrice: product.price || 0,
+          unit_label: product.unit_label || 'each',
+          total: item.quantity * (product.price || 0)
+        };
+      }
+      return item;
+    }));
+    
+    // Update search state
+    setProductSearches(prev => ({ ...prev, [lineItemId]: product.name }));
+    setShowProductDropdowns(prev => ({ ...prev, [lineItemId]: false }));
+  };
+
+  const clearProductSelection = (lineItemId: string) => {
+    // Clear product selection for line item
+    setLineItems(lineItems.map(item => {
+      if (item.id === lineItemId) {
+        return {
+          ...item,
+          product_id: undefined,
+          product_name: undefined,
+          description: '',
+          unit_label: 'each'
+        };
+      }
+      return item;
+    }));
+    
+    setProductSearches(prev => ({ ...prev, [lineItemId]: '' }));
+    setShowProductDropdowns(prev => ({ ...prev, [lineItemId]: false }));
+  };
+
+  // Opportunity search functions
+  const searchOpportunities = async (query: string) => {
+    setOpportunitySearchLoading(true);
+    
+    try {
+      const params = new URLSearchParams({
+        q: query,
+        limit: '10'
+      });
+      
+      // If we have a selected contact, filter by that contact
+      if (selectedContact?.id) {
+        params.append('contactId', selectedContact.id);
+      }
+      
+      const response = await fetch(`/api/sales/opportunities/search?${params}`, {
+        credentials: 'include'
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setOpportunityResults(data.opportunities || []);
+        setShowOpportunityDropdown(true);
+      }
+    } catch (error) {
+      console.error('Error searching opportunities:', error);
+    } finally {
+      setOpportunitySearchLoading(false);
+    }
+  };
+
+  const selectOpportunity = (opportunity: any) => {
+    setSelectedOpportunity(opportunity);
+    setOpportunitySearch(opportunity.title || opportunity.id);
+    setShowOpportunityDropdown(false);
+  };
+
+  const clearOpportunitySelection = () => {
+    setSelectedOpportunity(null);
+    setOpportunitySearch('');
+    setShowOpportunityDropdown(false);
+  };
+
   const fetchOrganization = async () => {
     try {
       const response = await fetch('/api/organization', {
@@ -255,6 +468,20 @@ export default function EstimateBuilder({
       if (response.ok) {
         const data = await response.json();
         setOrganization(data);
+        
+        // Load default settings for new estimates
+        if (!estimate && data.estimate_settings) {
+          const settings = data.estimate_settings;
+          setTerms(settings.default_terms || 'Payment due upon completion. This estimate is valid for 30 days.');
+          setNotes(settings.default_notes || '');
+          if (settings.default_tax_rate) {
+            setTaxRate(settings.default_tax_rate);
+          }
+          if (settings.default_validity_period) {
+            const validityDate = new Date(Date.now() + settings.default_validity_period * 24 * 60 * 60 * 1000);
+            setValidUntil(validityDate.toISOString().split('T')[0]);
+          }
+        }
       }
     } catch (error) {
       console.error('Error fetching organization:', error);
@@ -277,13 +504,37 @@ export default function EstimateBuilder({
       description: '', 
       quantity: 1, 
       unitPrice: 0, 
-      total: 0 
+      total: 0,
+      product_id: undefined,
+      product_name: undefined,
+      unit_label: 'each'
     }]);
   };
 
   const removeLineItem = (id: string) => {
     if (lineItems.length > 1) {
       setLineItems(lineItems.filter(item => item.id !== id));
+      // Clean up product search state for removed item
+      const newSearches = { ...productSearches };
+      const newResults = { ...productResults };
+      const newDropdowns = { ...showProductDropdowns };
+      const newLoading = { ...productSearchLoading };
+      const newDebounces = { ...productDebounces };
+      
+      delete newSearches[id];
+      delete newResults[id];
+      delete newDropdowns[id];
+      delete newLoading[id];
+      
+      if (newDebounces[id]) clearTimeout(newDebounces[id]);
+      delete newDebounces[id];
+      delete productDropdownRefs.current[id];
+      
+      setProductSearches(newSearches);
+      setProductResults(newResults);
+      setShowProductDropdowns(newDropdowns);
+      setProductSearchLoading(newLoading);
+      setProductDebounces(newDebounces);
     }
   };
 
@@ -302,6 +553,17 @@ export default function EstimateBuilder({
   };
 
   const handleSave = async (status: 'draft' | 'sent' = 'draft') => {
+    // Validate required fields
+    if (!opportunityId && !selectedOpportunity) {
+      alert('Please select an opportunity or create a new one before saving the estimate.');
+      return;
+    }
+    
+    if (!clientContactId && !clientName) {
+      alert('Please select or enter client information.');
+      return;
+    }
+    
     setLoading(true);
     
     const estimateData = {
@@ -311,7 +573,7 @@ export default function EstimateBuilder({
       contact_id: clientContactId || contactId || estimate?.contact_id,
       contact_name: clientName,
       contact_email: clientEmail,
-      opportunity_id: opportunityId || estimate?.opportunity_id,
+      opportunity_id: selectedOpportunity?.id || opportunityId || estimate?.opportunity_id,
       property_id: propertyId || null,
       property_address: projectAddress,
       applied_tax_rate: taxRate / 100, // Store as decimal
@@ -329,7 +591,13 @@ export default function EstimateBuilder({
         client_phone: clientPhone,
         tax_rate: taxRate,
         subtotal,
-        tax_amount: taxAmount
+        tax_amount: taxAmount,
+        projected_materials_cost: projectedMaterialsCost,
+        projected_labor_cost: projectedLaborCost,
+        projected_commissions: projectedCommissions,
+        projected_total_costs: totalProjectedCosts,
+        projected_profit: projectedProfit,
+        projected_profit_margin: projectedProfitMargin
       }
     };
 
@@ -417,6 +685,112 @@ export default function EstimateBuilder({
                 </div>
               </div>
             </div>
+
+            {/* Opportunity Selection - Required when not from opportunity */}
+            {!opportunityId && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="flex items-center mb-3">
+                  <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center">
+                    <span className="text-white text-sm font-bold">!</span>
+                  </div>
+                  <div className="ml-3">
+                    <h4 className="font-semibold text-gray-900">Opportunity Assignment Required</h4>
+                    <p className="text-sm text-gray-600">Select an existing opportunity or create a new one</p>
+                  </div>
+                </div>
+                
+                <div className="relative" ref={opportunityDropdownRef}>
+                  <label className="text-sm text-gray-600 font-medium">Search Opportunities</label>
+                  <div className="relative mt-1">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                    <input
+                      type="text"
+                      value={opportunitySearch}
+                      onChange={(e) => setOpportunitySearch(e.target.value)}
+                      onFocus={() => opportunitySearch.length >= 1 && setShowOpportunityDropdown(true)}
+                      className="w-full pl-10 pr-8 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="Type to search opportunities..."
+                      required={!selectedOpportunity}
+                    />
+                    {opportunitySearchLoading && (
+                      <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                      </div>
+                    )}
+                    {selectedOpportunity && (
+                      <button
+                        onClick={clearOpportunitySelection}
+                        className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-red-500"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                  
+                  {/* Opportunity Dropdown */}
+                  {showOpportunityDropdown && (
+                    <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-auto">
+                      {opportunityResults.length > 0 ? (
+                        opportunityResults.map((opportunity) => (
+                          <button
+                            key={opportunity.id}
+                            onClick={() => selectOpportunity(opportunity)}
+                            className="w-full px-4 py-3 text-left hover:bg-gray-50 focus:bg-gray-50 focus:outline-none border-b border-gray-100 last:border-b-0"
+                          >
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1">
+                                <div className="font-medium text-gray-900">{opportunity.title}</div>
+                                <div className="text-sm text-gray-600 mt-1">
+                                  {opportunity.contact_name} • {opportunity.stage}
+                                </div>
+                                <div className="text-xs text-gray-500 mt-1">
+                                  {opportunity.display_value} • {opportunity.pipeline_name}
+                                </div>
+                              </div>
+                            </div>
+                          </button>
+                        ))
+                      ) : (
+                        <div className="px-4 py-3 text-sm text-gray-500">
+                          {opportunitySearchLoading ? 'Searching...' : 'No opportunities found'}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+                
+                {selectedOpportunity && (
+                  <div className="mt-3 p-3 bg-white border border-blue-200 rounded-md">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="font-medium text-gray-900">{selectedOpportunity.title}</div>
+                        <div className="text-sm text-gray-600">
+                          {selectedOpportunity.contact_name} • {selectedOpportunity.display_value}
+                        </div>
+                      </div>
+                      <div className="text-xs text-green-600 font-medium">
+                        Selected ✓
+                      </div>
+                    </div>
+                  </div>
+                )}
+                
+                {/* Create New Opportunity Button */}
+                <div className="mt-3 pt-3 border-t border-blue-200">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // TODO: Implement create new opportunity modal
+                      alert('Create new opportunity functionality will be added');
+                    }}
+                    className="w-full flex items-center justify-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+                  >
+                    <Plus className="w-4 h-4 mr-2" />
+                    Create New Opportunity for Client
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Client Information */}
             <div className="grid grid-cols-2 gap-6">
@@ -693,32 +1067,89 @@ export default function EstimateBuilder({
                     {lineItems.map((item) => (
                       <tr key={item.id} className="border-b border-gray-100">
                         <td className="py-3 px-2">
-                          <input
-                            type="text"
-                            value={item.description}
-                            onChange={(e) => updateLineItem(item.id, 'description', e.target.value)}
-                            className="w-full px-2 py-1 border border-gray-300 rounded"
-                            placeholder="Labor, materials, equipment..."
-                          />
+                          <div className="space-y-2">
+                            {/* Product Search */}
+                            <div className="relative" ref={(el) => productDropdownRefs.current[item.id] = el}>
+                              <div className="relative">
+                                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                                <input
+                                  type="text"
+                                  value={productSearches[item.id] || ''}
+                                  onChange={(e) => handleProductSearch(e.target.value, item.id)}
+                                  onFocus={() => productSearches[item.id] && productSearches[item.id].length >= 1 && setShowProductDropdowns(prev => ({ ...prev, [item.id]: true }))}
+                                  className="w-full pl-10 pr-8 py-1 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                                  placeholder="Search products..."
+                                />
+                                {productSearchLoading[item.id] && (
+                                  <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
+                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-600"></div>
+                                  </div>
+                                )}
+                                {item.product_id && (
+                                  <button
+                                    onClick={() => clearProductSelection(item.id)}
+                                    className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-red-500"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                )}
+                              </div>
+                              
+                              {/* Product Dropdown */}
+                              {showProductDropdowns[item.id] && (productResults[item.id] || []).length > 0 && (
+                                <div className="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-48 overflow-auto">
+                                  {(productResults[item.id] || []).map((product) => (
+                                    <button
+                                      key={product.id}
+                                      onClick={() => selectProduct(product, item.id)}
+                                      className="w-full px-4 py-2 text-left hover:bg-gray-50 focus:bg-gray-50 focus:outline-none border-b border-gray-100 last:border-b-0"
+                                    >
+                                      <div className="font-medium text-gray-900">{product.name}</div>
+                                      {product.description && (
+                                        <div className="text-sm text-gray-600 truncate">{product.description}</div>
+                                      )}
+                                      <div className="text-sm text-green-600 font-semibold">
+                                        {product.display_price} / {product.unit_label}
+                                      </div>
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                            
+                            {/* Manual Description Input */}
+                            <input
+                              type="text"
+                              value={item.description}
+                              onChange={(e) => updateLineItem(item.id, 'description', e.target.value)}
+                              className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                              placeholder="Or enter custom description..."
+                            />
+                          </div>
                         </td>
                         <td className="py-3 px-2">
-                          <input
-                            type="number"
-                            value={item.quantity}
-                            onChange={(e) => updateLineItem(item.id, 'quantity', parseFloat(e.target.value) || 0)}
-                            className="w-full px-2 py-1 border border-gray-300 rounded text-center"
-                            min="0"
-                            step="0.01"
-                          />
+                          <div className="text-center">
+                            <input
+                              type="number"
+                              value={item.quantity}
+                              onChange={(e) => updateLineItem(item.id, 'quantity', parseFloat(e.target.value) || 0)}
+                              className="w-full px-2 py-1 border border-gray-300 rounded text-center text-sm"
+                              min="0"
+                              step="0.01"
+                            />
+                            {item.unit_label && (
+                              <div className="text-xs text-gray-500 mt-1">{item.unit_label}</div>
+                            )}
+                          </div>
                         </td>
                         <td className="py-3 px-2">
                           <div className="relative">
-                            <span className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-500">$</span>
+                            <span className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-500 text-sm">$</span>
                             <input
                               type="number"
                               value={item.unitPrice}
                               onChange={(e) => updateLineItem(item.id, 'unitPrice', parseFloat(e.target.value) || 0)}
-                              className="w-full pl-6 pr-2 py-1 border border-gray-300 rounded text-right"
+                              className="w-full pl-6 pr-2 py-1 border border-gray-300 rounded text-right text-sm"
                               min="0"
                               step="0.01"
                             />
@@ -768,6 +1199,95 @@ export default function EstimateBuilder({
                     <div className="flex justify-between text-xl font-bold text-gray-900 pt-2 border-t border-gray-200">
                       <span>Total:</span>
                       <span>${total.toFixed(2)}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Projected Costs Section (Hidden from Customer) */}
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6">
+              <div className="flex items-center mb-4">
+                <div className="w-6 h-6 bg-yellow-500 rounded-full flex items-center justify-center">
+                  <span className="text-white text-sm font-bold">P</span>
+                </div>
+                <div className="ml-3">
+                  <h4 className="font-semibold text-gray-900">Internal Projections</h4>
+                  <p className="text-sm text-gray-600">For opportunity tracking - not visible to customer</p>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-3 gap-4 mb-4">
+                <div>
+                  <label className="text-sm font-medium text-gray-700">Projected Materials Cost</label>
+                  <div className="relative mt-1">
+                    <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">$</span>
+                    <input
+                      type="number"
+                      value={projectedMaterialsCost}
+                      onChange={(e) => setProjectedMaterialsCost(parseFloat(e.target.value) || 0)}
+                      className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
+                      min="0"
+                      step="0.01"
+                      placeholder="0.00"
+                    />
+                  </div>
+                </div>
+                
+                <div>
+                  <label className="text-sm font-medium text-gray-700">Projected Labor Cost</label>
+                  <div className="relative mt-1">
+                    <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">$</span>
+                    <input
+                      type="number"
+                      value={projectedLaborCost}
+                      onChange={(e) => setProjectedLaborCost(parseFloat(e.target.value) || 0)}
+                      className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
+                      min="0"
+                      step="0.01"
+                      placeholder="0.00"
+                    />
+                  </div>
+                </div>
+                
+                <div>
+                  <label className="text-sm font-medium text-gray-700">Projected Commissions</label>
+                  <div className="relative mt-1">
+                    <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">$</span>
+                    <input
+                      type="number"
+                      value={projectedCommissions}
+                      onChange={(e) => setProjectedCommissions(parseFloat(e.target.value) || 0)}
+                      className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
+                      min="0"
+                      step="0.01"
+                      placeholder="0.00"
+                    />
+                  </div>
+                </div>
+              </div>
+              
+              {/* Projected Profit Summary */}
+              <div className="bg-white rounded-md border border-yellow-200 p-4">
+                <div className="grid grid-cols-4 gap-4 text-sm">
+                  <div>
+                    <span className="text-gray-600">Total Revenue:</span>
+                    <div className="font-semibold text-green-600">${total.toFixed(2)}</div>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">Total Projected Costs:</span>
+                    <div className="font-semibold text-red-600">${totalProjectedCosts.toFixed(2)}</div>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">Projected Profit:</span>
+                    <div className={`font-bold ${projectedProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      ${projectedProfit.toFixed(2)}
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">Profit Margin:</span>
+                    <div className={`font-bold ${projectedProfitMargin >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {projectedProfitMargin.toFixed(1)}%
                     </div>
                   </div>
                 </div>

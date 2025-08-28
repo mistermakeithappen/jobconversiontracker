@@ -169,8 +169,8 @@ export default function GHLSettingsPage() {
       const response = await fetch('/api/integrations/automake/status');
       const data = await response.json();
       
-      if (response.ok && data.integration?.id) {
-        setIntegrationId(data.integration.id);
+      if (response.ok && data.integrationId) {
+        setIntegrationId(data.integrationId);
       }
     } catch (error) {
       console.error('Error fetching integration ID:', error);
