@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X, Plus, Trash2, Edit2, Save, Receipt, DollarSign, Clock, User } from 'lucide-react';
+import { X, Plus, Trash2, Edit2, Save, Receipt, DollarSign, Clock, User, TrendingUp, Calculator, FileText } from 'lucide-react';
+import FinancialOverviewCards from './shared/FinancialOverviewCards';
 import { getSupabaseClient } from '@/lib/auth/client';
 
 interface Receipt {
@@ -79,6 +80,7 @@ interface ReceiptModalProps {
     monetaryValue: number;
     totalExpenses: number;
     netProfit: number;
+    stageName?: string; // Added for stage-based button visibility
   };
   integrationId: string;
   onClose: () => void;
@@ -105,7 +107,7 @@ const PAYMENT_METHODS = [
 
 export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: ReceiptModalProps) {
   const supabase = getSupabaseClient();
-  const [activeTab, setActiveTab] = useState<'receipts' | 'time' | 'commissions'>('receipts');
+  const [activeTab, setActiveTab] = useState<'profitability' | 'estimates' | 'invoices' | 'receipts' | 'time' | 'commissions'>('profitability');
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([]);
   const [commissions, setCommissions] = useState<Commission[]>([]);
@@ -175,6 +177,13 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
   }[]>([]);
   const [companyCards, setCompanyCards] = useState<string[]>([]);
   const [products, setProducts] = useState<any[]>([]);
+  
+  // New states for estimates and invoices
+  const [estimates, setEstimates] = useState<any[]>([]);
+  const [invoices, setInvoices] = useState<any[]>([]);
+  const [cashCollected, setCashCollected] = useState<any>(null);
+  const [estimatesLoading, setEstimatesLoading] = useState(false);
+  const [invoicesLoading, setInvoicesLoading] = useState(false);
 
   useEffect(() => {
     fetchReceipts();
@@ -185,6 +194,9 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
     fetchCurrentUserGhlName();
     fetchCompanyCards();
     fetchProducts();
+    fetchEstimates();
+    fetchInvoices();
+    fetchCashCollected();
   }, [opportunity.id]);
 
   useEffect(() => {
@@ -193,6 +205,12 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
     }
     if (activeTab === 'commissions') {
       fetchCommissions();
+    }
+    if (activeTab === 'estimates') {
+      fetchEstimates();
+    }
+    if (activeTab === 'invoices') {
+      fetchInvoices();
     }
   }, [activeTab, opportunity.id]);
 
@@ -318,6 +336,48 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
       }
     } catch (error) {
       console.error('Error fetching products:', error);
+    }
+  };
+
+  const fetchEstimates = async () => {
+    setEstimatesLoading(true);
+    try {
+      const response = await fetch(`/api/sales/opportunities/${opportunity.id}/estimates`);
+      const data = await response.json();
+      if (response.ok) {
+        setEstimates(data.estimates || []);
+      }
+    } catch (error) {
+      console.error('Error fetching estimates:', error);
+    } finally {
+      setEstimatesLoading(false);
+    }
+  };
+
+  const fetchInvoices = async () => {
+    setInvoicesLoading(true);
+    try {
+      const response = await fetch(`/api/sales/opportunities/${opportunity.id}/invoices`);
+      const data = await response.json();
+      if (response.ok) {
+        setInvoices(data.invoices || []);
+      }
+    } catch (error) {
+      console.error('Error fetching invoices:', error);
+    } finally {
+      setInvoicesLoading(false);
+    }
+  };
+
+  const fetchCashCollected = async () => {
+    try {
+      const response = await fetch(`/api/sales/opportunities/${opportunity.id}/cash-collected`);
+      const data = await response.json();
+      if (response.ok) {
+        setCashCollected(data);
+      }
+    } catch (error) {
+      console.error('Error fetching cash collected:', error);
     }
   };
 
@@ -984,10 +1044,49 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
           
           {/* Tabs */}
           <div className="mt-4">
-            <nav className="flex space-x-8">
+            <nav className="flex space-x-2 overflow-x-auto">
+              <button
+                onClick={() => setActiveTab('profitability')}
+                className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors whitespace-nowrap ${
+                  activeTab === 'profitability'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <div className="flex items-center space-x-2">
+                  <TrendingUp className="w-4 h-4" />
+                  <span>Profitability Tracking</span>
+                </div>
+              </button>
+              <button
+                onClick={() => setActiveTab('estimates')}
+                className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors whitespace-nowrap ${
+                  activeTab === 'estimates'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <div className="flex items-center space-x-2">
+                  <Calculator className="w-4 h-4" />
+                  <span>Estimates ({estimates.length})</span>
+                </div>
+              </button>
+              <button
+                onClick={() => setActiveTab('invoices')}
+                className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors whitespace-nowrap ${
+                  activeTab === 'invoices'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <div className="flex items-center space-x-2">
+                  <FileText className="w-4 h-4" />
+                  <span>Invoices ({invoices.length})</span>
+                </div>
+              </button>
               <button
                 onClick={() => setActiveTab('receipts')}
-                className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
+                className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors whitespace-nowrap ${
                   activeTab === 'receipts'
                     ? 'border-blue-500 text-blue-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -1000,7 +1099,7 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
               </button>
               <button
                 onClick={() => setActiveTab('time')}
-                className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
+                className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors whitespace-nowrap ${
                   activeTab === 'time'
                     ? 'border-blue-500 text-blue-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -1013,7 +1112,7 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
               </button>
               <button
                 onClick={() => setActiveTab('commissions')}
-                className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
+                className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors whitespace-nowrap ${
                   activeTab === 'commissions'
                     ? 'border-blue-500 text-blue-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -1028,39 +1127,229 @@ export function ReceiptModal({ opportunity, integrationId, onClose, onUpdate }: 
           </div>
           
           {/* Summary */}
-          <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 mt-4">
-            <div className="bg-blue-50 rounded-lg p-3">
-              <p className="text-xs text-blue-600">Opportunity Value</p>
-              <p className="text-lg font-bold text-blue-900">{formatCurrency(opportunity.monetaryValue)}</p>
-            </div>
-            <div className="bg-orange-50 rounded-lg p-3">
-              <p className="text-xs text-orange-600">Labor Cost</p>
-              <p className="text-lg font-bold text-orange-900">{formatCurrency(calculateLaborCost())}</p>
-            </div>
-            <div className="bg-purple-50 rounded-lg p-3">
-              <p className="text-xs text-purple-600">Material Expenses</p>
-              <p className="text-lg font-bold text-purple-900">{formatCurrency(calculateMaterialExpenses())}</p>
-            </div>
-            <div className="bg-yellow-50 rounded-lg p-3">
-              <p className="text-xs text-yellow-600">Total Commissions</p>
-              <p className="text-lg font-bold text-yellow-900">{formatCurrency(calculateTotalCommissions())}</p>
-            </div>
-            <div className="bg-red-50 rounded-lg p-3">
-              <p className="text-xs text-red-600">Total Costs</p>
-              <p className="text-lg font-bold text-red-900">{formatCurrency(calculateTotalCosts())}</p>
-            </div>
-            <div className={`${calculateNetProfit() >= 0 ? 'bg-green-50' : 'bg-red-50'} rounded-lg p-3`}>
-              <p className={`text-xs ${calculateNetProfit() >= 0 ? 'text-green-600' : 'text-red-600'}`}>Net Profit</p>
-              <p className={`text-lg font-bold ${calculateNetProfit() >= 0 ? 'text-green-900' : 'text-red-900'}`}>
-                {formatCurrency(calculateNetProfit())}
-              </p>
-            </div>
-          </div>
+        
         </div>
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-6">
-          {activeTab === 'receipts' && (
+          {activeTab === 'profitability' && (
+              <div className="space-y-6">
+                {/* Profitability Overview */}
+                <FinancialOverviewCards
+                  opportunityValue={opportunity.monetaryValue}
+                  laborCost={calculateLaborCost()}
+                  materialExpenses={calculateMaterialExpenses()}
+                  totalCommissions={calculateTotalCommissions()}
+                  totalCosts={calculateTotalCosts()}
+                  netProfit={calculateNetProfit()}
+                  cashCollected={cashCollected?.cash_collected?.total || 0}
+                />
+
+                {/* Expense Breakdown */}
+                <div className="bg-white border text-black rounded-lg p-4">
+                  <h3 className="text-lg font-semibold mb-4">Expense Breakdown</h3>
+                  <div className="space-y-3">
+                    {opportunity.materialExpenses > 0 && (
+                      <div className="flex justify-between items-center py-2 border-b">
+                        <span className="text-gray-600">Materials</span>
+                        <span className="font-medium text-red-600">${opportunity.materialExpenses.toLocaleString()}</span>
+                      </div>
+                    )}
+                    {opportunity.laborExpenses > 0 && (
+                      <div className="flex justify-between items-center py-2 border-b">
+                        <span className="text-gray-600">Labor</span>
+                        <span className="font-medium text-red-600">${opportunity.laborExpenses.toLocaleString()}</span>
+                      </div>
+                    )}
+                    {opportunity.totalCommissions > 0 && (
+                      <div className="flex justify-between items-center py-2 border-b">
+                        <span className="text-gray-600">Commissions</span>
+                        <span className="font-medium text-red-600">${opportunity.totalCommissions.toLocaleString()}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between items-center py-2 font-semibold text-lg border-t-2">
+                      <span>Total Expenses</span>
+                      <span className="text-red-600">${opportunity.totalExpenses.toLocaleString()}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'estimates' && (
+              <div className="space-y-4">
+                <div className="flex justify-between items-center">
+                  <h3 className="text-lg font-semibold">Estimates ({estimates.length})</h3>
+                  {/* Only show Create Estimate button for opportunities in "estimate apt booked" stage */}
+                  {opportunity.stageName && opportunity.stageName.toLowerCase().includes('estimate apt booked') ? (
+                    <button
+                      onClick={() => {
+                        // Trigger estimate builder for this opportunity
+                        // Note: This could be enhanced to open EstimateBuilder with opportunity data
+                        onClose();
+                      }}
+                      className="px-3 py-1 bg-green-100 text-green-700 rounded-md hover:bg-green-200 transition-colors text-sm"
+                      title="Create estimate from this opportunity"
+                    >
+                      <Calculator className="w-4 h-4 inline mr-1" />
+                      Create from Opportunity
+                    </button>
+                  ) : (
+                    <div 
+                      className="px-3 py-1 bg-gray-100 text-gray-500 rounded-md text-sm cursor-not-allowed"
+                      title={`Estimates available when opportunity reaches "Estimate Apt Booked" stage. Currently in: ${opportunity.stageName || 'Unknown Stage'}`}
+                    >
+                      <Calculator className="w-4 h-4 inline mr-1" />
+                      <span>Create from Opportunity (Stage Required)</span>
+                    </div>
+                  )}
+                </div>
+
+                {estimatesLoading ? (
+                  <div className="text-center py-8">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                    <p className="mt-2 text-gray-600">Loading estimates...</p>
+                  </div>
+                ) : estimates.length === 0 ? (
+                  <div className="text-center py-8 bg-gray-50 rounded-lg">
+                    <Calculator className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                    <p className="text-gray-600">No estimates found for this opportunity.</p>
+                    <p className="text-sm text-gray-500 mt-1">Create your first estimate to get started.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {estimates.map((estimate) => (
+                      <div key={estimate.id} className="bg-white border rounded-lg p-4 hover:shadow-md transition-shadow">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <h4 className="font-medium text-gray-900">{estimate.name}</h4>
+                            <p className="text-sm text-gray-600">{estimate.estimate_number}</p>
+                            {estimate.description && (
+                              <p className="text-sm text-gray-500 mt-1">{estimate.description}</p>
+                            )}
+                          </div>
+                          <div className="text-right">
+                            <p className="font-semibold text-lg">${estimate.amount.toLocaleString()}</p>
+                            <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${
+                              estimate.status === 'accepted' ? 'bg-green-100 text-green-800' :
+                              estimate.status === 'sent' ? 'bg-blue-100 text-blue-800' :
+                              estimate.status === 'declined' ? 'bg-red-100 text-red-800' :
+                              estimate.status === 'expired' ? 'bg-yellow-100 text-yellow-800' :
+                              'bg-gray-100 text-gray-800'
+                            }`}>
+                              {estimate.status}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="mt-3 flex justify-between items-center text-sm text-gray-500">
+                          <span>Created: {new Date(estimate.created_at).toLocaleDateString()}</span>
+                          {estimate.converted_to_invoice && (
+                            <span className="text-green-600 font-medium">✓ Converted to Invoice</span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeTab === 'invoices' && (
+              <div className="space-y-4">
+                <div className="flex justify-between items-center">
+                  <h3 className="text-lg font-semibold">Invoices ({invoices.length})</h3>
+                  <button
+                    onClick={() => {
+                      // Trigger invoice builder for this opportunity
+                      // Note: This could be enhanced to open InvoiceBuilder with opportunity data
+                      onClose();
+                    }}
+                    className="px-3 py-1 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 transition-colors text-sm"
+                    title="Create invoice from this opportunity"
+                  >
+                    <FileText className="w-4 h-4 inline mr-1" />
+                    Create from Opportunity
+                  </button>
+                </div>
+
+                {invoicesLoading ? (
+                  <div className="text-center py-8">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                    <p className="mt-2 text-gray-600">Loading invoices...</p>
+                  </div>
+                ) : invoices.length === 0 ? (
+                  <div className="text-center py-8 bg-gray-50 rounded-lg">
+                    <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                    <p className="text-gray-600">No invoices found for this opportunity.</p>
+                    <p className="text-sm text-gray-500 mt-1">Create your first invoice to start collecting payments.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {invoices.map((invoice) => (
+                      <div key={invoice.id} className="bg-white border rounded-lg p-4 hover:shadow-md transition-shadow">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <h4 className="font-medium text-gray-900">{invoice.name}</h4>
+                            <p className="text-sm text-gray-600">{invoice.invoice_number}</p>
+                            {invoice.description && (
+                              <p className="text-sm text-gray-500 mt-1">{invoice.description}</p>
+                            )}
+                          </div>
+                          <div className="text-right">
+                            <p className="font-semibold text-lg">${invoice.amount.toLocaleString()}</p>
+                            <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${
+                              invoice.status === 'paid' ? 'bg-green-100 text-green-800' :
+                              invoice.status === 'partially_paid' ? 'bg-yellow-100 text-yellow-800' :
+                              invoice.status === 'sent' ? 'bg-blue-100 text-blue-800' :
+                              invoice.status === 'overdue' ? 'bg-red-100 text-red-800' :
+                              'bg-gray-100 text-gray-800'
+                            }`}>
+                              {invoice.status.replace('_', ' ')}
+                            </span>
+                          </div>
+                        </div>
+                        
+                        {/* Payment Info */}
+                        {invoice.amount_paid > 0 && (
+                          <div className="mt-3 p-2 bg-green-50 rounded">
+                            <div className="flex justify-between text-sm">
+                              <span className="text-green-700">Paid:</span>
+                              <span className="font-medium text-green-800">${invoice.amount_paid.toLocaleString()}</span>
+                            </div>
+                            {invoice.remaining_balance > 0 && (
+                              <div className="flex justify-between text-sm mt-1">
+                                <span className="text-orange-700">Remaining:</span>
+                                <span className="font-medium text-orange-800">${invoice.remaining_balance.toLocaleString()}</span>
+                              </div>
+                            )}
+                            <div className="mt-2">
+                              <div className="bg-gray-200 rounded-full h-2">
+                                <div 
+                                  className="bg-green-500 h-2 rounded-full transition-all duration-300"
+                                  style={{ width: `${invoice.payment_percentage}%` }}
+                                ></div>
+                              </div>
+                              <p className="text-xs text-gray-600 mt-1">{invoice.payment_percentage.toFixed(1)}% paid</p>
+                            </div>
+                          </div>
+                        )}
+                        
+                        <div className="mt-3 flex justify-between items-center text-sm text-gray-500">
+                          <span>Created: {new Date(invoice.created_at).toLocaleDateString()}</span>
+                          {invoice.due_date && (
+                            <span className={invoice.is_overdue ? 'text-red-600 font-medium' : ''}>
+                              Due: {new Date(invoice.due_date).toLocaleDateString()}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeTab === 'receipts' && (
             <>
               {/* Add Receipt Options */}
               {!showAddForm && (

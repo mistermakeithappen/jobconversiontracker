@@ -50,7 +50,7 @@ export async function GET() {
       .select(`
         role,
         custom_permissions,
-        organizations(
+        organizations!organization_members_organization_id_fkey(
           id,
           name,
           slug,
@@ -59,7 +59,7 @@ export async function GET() {
           trial_ends_at
         )
       `)
-      .eq('user_id', user.id)
+      .eq('organization_members.user_id', user.id)
       .single();
 
     if (orgError || !orgMember) {
@@ -133,7 +133,7 @@ export async function POST(request: NextRequest) {
       .select(`
         role,
         custom_permissions,
-        organizations(
+        organizations!organization_members_organization_id_fkey(
           id,
           name,
           slug,
@@ -142,7 +142,7 @@ export async function POST(request: NextRequest) {
           trial_ends_at
         )
       `)
-      .eq('user_id', userId)
+      .eq('organization_members.user_id', userId)
       .single();
 
     if (orgError || !orgMember) {

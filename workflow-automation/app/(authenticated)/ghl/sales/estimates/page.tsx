@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/lib/auth/auth-context';
-import { Calculator, RefreshCw, Search, User, Calendar, Clock, Send, CheckCircle, XCircle, AlertTriangle, Eye, Plus, Settings } from 'lucide-react';
+import { Calculator, RefreshCw, Search, User, Calendar, Clock, Send, CheckCircle, XCircle, AlertTriangle, Eye, Plus, Settings, FileCheck } from 'lucide-react';
 import EstimateBuilder from '@/components/ghl/sales/EstimateBuilder';
+import InvoiceBuilder from '@/components/ghl/sales/InvoiceBuilder';
+import EstimatePreview from '@/components/ghl/sales/EstimatePreview';
 
 interface Estimate {
   id: string;
@@ -21,6 +23,16 @@ interface Estimate {
   sent_date?: string;
   notes?: string;
   event_type: string;
+  // Additional fields for invoice conversion
+  name?: string;
+  description?: string;
+  line_items?: any[];
+  terms?: string;
+  property_id?: string;
+  property_address?: string;
+  applied_tax_rate?: number;
+  metadata?: any;
+  converted_to_invoice?: boolean;
 }
 
 interface EstimateStats {
@@ -70,10 +82,16 @@ export default function EstimatesManagement() {
   const [stats, setStats] = useState<EstimateStats | null>(null);
   const [showEstimateBuilder, setShowEstimateBuilder] = useState(false);
   const [editingEstimate, setEditingEstimate] = useState<any>(null);
+  const [showInvoiceBuilder, setShowInvoiceBuilder] = useState(false);
+  const [convertingEstimate, setConvertingEstimate] = useState<Estimate | null>(null);
+  const [showEstimatePreview, setShowEstimatePreview] = useState(false);
+  const [previewEstimate, setPreviewEstimate] = useState<Estimate | null>(null);
+  const [organization, setOrganization] = useState<any>(null);
 
   useEffect(() => {
     if (user) {
       fetchIntegrations();
+      fetchOrganization();
     }
   }, [user]);
 
@@ -148,6 +166,20 @@ export default function EstimatesManagement() {
     } finally {
       setLoading(false);
       setRefreshing(false);
+    }
+  };
+
+  const fetchOrganization = async () => {
+    try {
+      const response = await fetch('/api/organization', {
+        credentials: 'include',
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setOrganization(data.organization);
+      }
+    } catch (error) {
+      console.error('Error fetching organization:', error);
     }
   };
 
@@ -524,7 +556,10 @@ export default function EstimatesManagement() {
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                       <div className="flex items-center space-x-3">
                         <button
-                          onClick={() => setSelectedEstimate(estimate)}
+                          onClick={() => {
+                            setPreviewEstimate(estimate);
+                            setShowEstimatePreview(true);
+                          }}
                           className="text-green-600 hover:text-green-900 flex items-center"
                         >
                           <Eye className="w-4 h-4 mr-1" />
@@ -541,6 +576,19 @@ export default function EstimatesManagement() {
                             Edit
                           </button>
                         )}
+                        {(estimate.status === 'accepted' || estimate.status === 'sent') && !estimate.converted_to_invoice && (
+                          <button
+                            onClick={() => {
+                              setConvertingEstimate(estimate);
+                              setShowInvoiceBuilder(true);
+                            }}
+                            className="flex items-center space-x-1 px-2 py-1 bg-green-100 text-green-700 rounded-md hover:bg-green-200 transition-colors text-xs ml-2"
+                            title="Convert this estimate to an invoice - transfers all data"
+                          >
+                            <FileCheck className="w-3 h-3" />
+                            <span>Convert to Invoice</span>
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -551,92 +599,36 @@ export default function EstimatesManagement() {
         )}
       </div>
 
-      {/* Estimate Detail Modal */}
-      {selectedEstimate && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-lg font-medium text-gray-900">Estimate Details</h3>
-                <button
-                  onClick={() => setSelectedEstimate(null)}
-                  className="text-gray-400 hover:text-gray-600"
-                >
-                  <XCircle className="w-6 h-6" />
-                </button>
-              </div>
-              
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-sm font-medium text-gray-500">Estimate Number</label>
-                    <p className="text-sm text-gray-900">
-                      {selectedEstimate.estimate_number}
-                    </p>
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium text-gray-500">Status</label>
-                    <div className="mt-1">
-                      <StatusBadge status={selectedEstimate.status} />
-                    </div>
-                  </div>
-                </div>
-                
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-sm font-medium text-gray-500">Amount</label>
-                    <p className="text-lg font-bold text-gray-900">
-                      {formatCurrency(selectedEstimate.amount, selectedEstimate.currency)}
-                    </p>
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium text-gray-500">Contact</label>
-                    <p className="text-sm text-gray-900">
-                      {selectedEstimate.contact_name || selectedEstimate.contact_id || 'Unknown'}
-                    </p>
-                    {selectedEstimate.contact_email && (
-                      <p className="text-sm text-gray-500">{selectedEstimate.contact_email}</p>
-                    )}
-                  </div>
-                </div>
-                
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-sm font-medium text-gray-500">Created</label>
-                    <p className="text-sm text-gray-900">{formatDate(selectedEstimate.estimate_date)}</p>
-                  </div>
-                  {selectedEstimate.sent_date && (
-                    <div>
-                      <label className="text-sm font-medium text-gray-500">Sent Date</label>
-                      <p className="text-sm text-gray-900">{formatDate(selectedEstimate.sent_date)}</p>
-                    </div>
-                  )}
-                </div>
-                
-                {selectedEstimate.valid_until && (
-                  <div>
-                    <label className="text-sm font-medium text-gray-500">Valid Until</label>
-                    <p className="text-sm text-gray-900">{formatDate(selectedEstimate.valid_until)}</p>
-                  </div>
-                )}
-                
-                {selectedEstimate.opportunity_id && (
-                  <div>
-                    <label className="text-sm font-medium text-gray-500">Opportunity ID</label>
-                    <p className="text-sm text-gray-900">{selectedEstimate.opportunity_id}</p>
-                  </div>
-                )}
-                
-                {selectedEstimate.notes && (
-                  <div>
-                    <label className="text-sm font-medium text-gray-500">Notes</label>
-                    <p className="text-sm text-gray-900">{selectedEstimate.notes}</p>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
+      {/* Estimate Preview */}
+      {showEstimatePreview && previewEstimate && (
+        <EstimatePreview
+          estimate={previewEstimate}
+          organization={organization}
+          onClose={() => {
+            setShowEstimatePreview(false);
+            setPreviewEstimate(null);
+          }}
+          onEdit={() => {
+            setEditingEstimate(previewEstimate);
+            setShowEstimateBuilder(true);
+            setShowEstimatePreview(false);
+            setPreviewEstimate(null);
+          }}
+          onConvertToInvoice={() => {
+            setConvertingEstimate(previewEstimate);
+            setShowInvoiceBuilder(true);
+            setShowEstimatePreview(false);
+            setPreviewEstimate(null);
+          }}
+          onSend={() => {
+            // Handle send estimate
+            alert('Send estimate functionality to be implemented');
+          }}
+          onDownload={() => {
+            // Handle download PDF
+            alert('Download PDF functionality to be implemented');
+          }}
+        />
       )}
 
       {/* Footer info */}
@@ -683,6 +675,50 @@ export default function EstimatesManagement() {
             } catch (error) {
               console.error('Error saving estimate:', error);
               alert('Failed to save estimate. Please try again.');
+            }
+          }}
+        />
+      )}
+
+      {/* Invoice Builder Modal for Estimate Conversion */}
+      {showInvoiceBuilder && convertingEstimate && (
+        <InvoiceBuilder
+          convertFromEstimate={convertingEstimate}
+          integrationId={selectedIntegration}
+          onClose={() => {
+            setShowInvoiceBuilder(false);
+            setConvertingEstimate(null);
+          }}
+          onSave={async (invoiceData) => {
+            try {
+              // Add estimate_id to mark this as a conversion
+              const dataWithEstimate = {
+                ...invoiceData,
+                estimate_id: convertingEstimate.id
+              };
+
+              const response = await fetch('/api/sales/invoices/create', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(dataWithEstimate),
+              });
+
+              if (response.ok) {
+                // Refresh estimates to show conversion status
+                await fetchEstimates();
+                setShowInvoiceBuilder(false);
+                setConvertingEstimate(null);
+                alert('Estimate successfully converted to invoice!');
+              } else {
+                const error = await response.json();
+                console.error('Error converting to invoice:', error);
+                alert('Failed to convert to invoice: ' + (error.error || 'Unknown error'));
+              }
+            } catch (error) {
+              console.error('Error converting to invoice:', error);
+              alert('Failed to convert to invoice. Please try again.');
             }
           }}
         />

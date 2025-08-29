@@ -2,7 +2,9 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { X, Plus, Trash2, Save, Send, Building, Calendar, FileText, DollarSign, Search, User, ChevronDown } from 'lucide-react';
+import { v4 as uuidv4 } from 'uuid';
 import PropertyModal from '@/components/properties/PropertyModal';
+import WorkflowBreadcrumb from './WorkflowBreadcrumb';
 
 interface LineItem {
   id: string;
@@ -36,6 +38,7 @@ interface EstimateBuilderProps {
   contactEmail?: string;
   opportunityId?: string;
   integrationId?: string;
+  opportunityData?: any; // Full opportunity object for pre-population
   onClose: () => void;
   onSave: (estimateData: any) => void;
 }
@@ -47,6 +50,7 @@ export default function EstimateBuilder({
   contactEmail,
   opportunityId,
   integrationId,
+  opportunityData,
   onClose,
   onSave
 }: EstimateBuilderProps) {
@@ -144,6 +148,67 @@ export default function EstimateBuilder({
       setSelectedOpportunity({ id: opportunityId });
     }
   }, []);
+
+  // Pre-populate from opportunity data
+  useEffect(() => {
+    if (opportunityData) {
+      console.log('Pre-populating estimate from opportunity:', opportunityData);
+      
+      // Set basic form data using individual state setters
+      setEstimateName(opportunityData.name || 'Construction Estimate');
+      setDescription(`Estimate for ${opportunityData.name || 'opportunity'}`);
+      setNotes(`Generated from opportunity: ${opportunityData.name}\nOpportunity Value: $${opportunityData.monetaryValue?.toLocaleString() || '0'}`);
+
+      // Set contact if available
+      if (opportunityData.contactName) {
+        setSelectedContact({
+          id: opportunityData.contactId || opportunityData.id,
+          name: opportunityData.contactName,
+          email: opportunityData.contactEmail || '',
+          phone: opportunityData.contactPhone || '',
+        });
+        setContactSearch('');
+        setClientName(opportunityData.contactName);
+        setClientEmail(opportunityData.contactEmail || '');
+        setClientPhone(opportunityData.contactPhone || '');
+        setClientContactId(opportunityData.contactId || '');
+      }
+
+      // Set opportunity
+      if (opportunityData.id) {
+        setSelectedOpportunity({
+          id: opportunityData.id,
+          title: opportunityData.name,
+          contact_name: opportunityData.contactName,
+          stage: opportunityData.stageName,
+          display_value: `$${opportunityData.monetaryValue?.toLocaleString() || '0'}`,
+          pipeline_name: opportunityData.pipelineName
+        });
+        setOpportunitySearch('');
+      }
+
+      // Create line items from opportunity value if no existing items
+      if (opportunityData.monetaryValue && opportunityData.monetaryValue > 0) {
+        const newLineItem = {
+          id: uuidv4(),
+          description: `Work for ${opportunityData.name}`,
+          quantity: 1,
+          unit_price: opportunityData.monetaryValue,
+          total: opportunityData.monetaryValue,
+          product_id: null,
+          product_name: '',
+        };
+        setLineItems([newLineItem]);
+      }
+
+      // Set projections if available
+      if (opportunityData.materialExpenses || opportunityData.laborExpenses || opportunityData.totalCommissions) {
+        setProjectedMaterialsCost(opportunityData.materialExpenses || 0);
+        setProjectedLaborCost(opportunityData.laborExpenses || 0);
+        setProjectedCommissions(opportunityData.totalCommissions || 0);
+      }
+    }
+  }, [opportunityData]);
 
   // Debounced opportunity search
   useEffect(() => {
@@ -614,6 +679,12 @@ export default function EstimateBuilder({
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-lg w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
+        {/* Workflow Breadcrumb */}
+        <WorkflowBreadcrumb 
+          currentStep="estimate"
+          opportunityData={opportunityData}
+        />
+        
         {/* Header */}
         <div className="bg-gradient-to-r from-green-600 to-green-700 text-white p-6">
           <div className="flex items-center justify-between">
@@ -621,9 +692,14 @@ export default function EstimateBuilder({
               <FileText className="w-8 h-8" />
               <div>
                 <h2 className="text-2xl font-bold">
-                  {estimate ? 'Edit Estimate' : 'Create New Estimate'}
+                  {estimate ? 'Edit Estimate' : opportunityData ? 'Create Estimate from Opportunity' : 'Create New Estimate'}
                 </h2>
-                <p className="text-green-100">Professional Construction Estimate</p>
+                <p className="text-green-100">
+                  {opportunityData 
+                    ? `Generate estimate for: ${opportunityData.name}` 
+                    : 'Professional Construction Estimate'
+                  }
+                </p>
               </div>
             </div>
             <button

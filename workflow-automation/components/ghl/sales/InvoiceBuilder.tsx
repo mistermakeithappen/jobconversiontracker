@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { X, Plus, Trash2, Save, Send, Building, Calendar, FileText, DollarSign, Search, User, ChevronDown } from 'lucide-react';
 import PropertyModal from '@/components/properties/PropertyModal';
+import WorkflowBreadcrumb from './WorkflowBreadcrumb';
 
 interface LineItem {
   id: string;
@@ -32,7 +33,8 @@ interface InvoiceBuilderProps {
   contactEmail?: string;
   opportunityId?: string;
   integrationId?: string;
-  estimateId?: string; // If converting from estimate
+  convertFromEstimate?: any; // Estimate object to convert from
+  opportunityData?: any; // Full opportunity object for pre-population
   onClose: () => void;
   onSave: (invoiceData: any) => void;
 }
@@ -44,7 +46,8 @@ export default function InvoiceBuilder({
   contactEmail,
   opportunityId,
   integrationId,
-  estimateId,
+  convertFromEstimate,
+  opportunityData,
   onClose,
   onSave
 }: InvoiceBuilderProps) {
@@ -142,6 +145,150 @@ export default function InvoiceBuilder({
       setSelectedOpportunity({ id: opportunityId });
     }
   }, []);
+
+  // Handle converting from estimate
+  useEffect(() => {
+    if (convertFromEstimate) {
+      console.log('Converting estimate to invoice:', convertFromEstimate);
+      console.log('Available properties:', Object.keys(convertFromEstimate));
+      // Pre-populate form with estimate data using individual state setters
+      setInvoiceName(convertFromEstimate.name || '');
+      setDescription(convertFromEstimate.description || '');
+      setNotes(convertFromEstimate.notes || '');
+      setInvoiceNumber(`INV-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`);
+      setPaymentTerms(convertFromEstimate.terms || 'Net 30');
+
+      // Set contact info if available
+      if (convertFromEstimate.contact_id) {
+        setSelectedContact({
+          id: convertFromEstimate.contact_id,
+          name: convertFromEstimate.contact_name || 'Unknown Contact',
+          email: convertFromEstimate.contact_email || '',
+          phone: convertFromEstimate.contact_phone || '',
+        });
+        setContactSearch(''); // Clear search since we have selection
+      }
+
+      // Set line items from estimate
+      if (convertFromEstimate.line_items && convertFromEstimate.line_items.length > 0) {
+        const convertedLineItems = convertFromEstimate.line_items.map((item: any) => ({
+          id: crypto.randomUUID(),
+          description: item.description || '',
+          quantity: item.quantity || 1,
+          unitPrice: item.unit_price || item.unitPrice || 0,
+          total: item.total || (item.quantity * (item.unit_price || item.unitPrice)) || 0,
+          product_id: item.product_id || null,
+          product_name: item.product_name || '',
+        }));
+        setLineItems(convertedLineItems);
+      } else {
+        // If no line items in estimate, create one from the amount
+        const fallbackLineItem = {
+          id: crypto.randomUUID(),
+          description: `Work for ${convertFromEstimate.name || 'estimate'}`,
+          quantity: 1,
+          unitPrice: convertFromEstimate.amount || 0,
+          total: convertFromEstimate.amount || 0,
+          product_id: null,
+          product_name: '',
+        };
+        setLineItems([fallbackLineItem]);
+      }
+
+      // Set property and tax info
+      if (convertFromEstimate.property_id) {
+        setSelectedProperty({
+          id: convertFromEstimate.property_id,
+          full_address: convertFromEstimate.property_address || 'Property Address',
+          nickname: '',
+          postal_code: '',
+        });
+        if (convertFromEstimate.applied_tax_rate) {
+          setTaxRate(convertFromEstimate.applied_tax_rate * 100); // Convert from decimal to percentage
+        }
+      }
+
+      // Set opportunity if available  
+      if (convertFromEstimate.opportunity_id) {
+        console.log('Setting opportunity from estimate:', convertFromEstimate.opportunity_id);
+        setSelectedOpportunity({
+          id: convertFromEstimate.opportunity_id,
+          title: convertFromEstimate.name || 'Estimate Opportunity',
+          contact_name: convertFromEstimate.contact_name,
+          stage: 'Estimate Converted',
+          display_value: `$${convertFromEstimate.amount?.toLocaleString() || '0'}`,
+          pipeline_name: 'Sales'
+        });
+        setOpportunitySearch(''); // Clear search since we have selection
+      }
+
+      // Transfer projections if available in metadata
+      if (convertFromEstimate.metadata) {
+        const metadata = convertFromEstimate.metadata;
+        if (metadata.projectedMaterialsCost) setProjectedMaterialsCost(metadata.projectedMaterialsCost);
+        if (metadata.projectedLaborCost) setProjectedLaborCost(metadata.projectedLaborCost);
+        if (metadata.projectedCommissions) setProjectedCommissions(metadata.projectedCommissions);
+      }
+    }
+  }, [convertFromEstimate]);
+
+  // Pre-populate from opportunity data (when creating invoice directly from opportunity)
+  useEffect(() => {
+    if (opportunityData && !convertFromEstimate) {
+      console.log('Pre-populating invoice from opportunity:', opportunityData);
+      
+      // Set basic form data using individual state setters
+      setInvoiceName(opportunityData.name || '');
+      setDescription(`Invoice for ${opportunityData.name || 'opportunity'}`);
+      setNotes(`Generated from opportunity: ${opportunityData.name}\nOpportunity Value: $${opportunityData.monetaryValue?.toLocaleString() || '0'}`);
+      setInvoiceNumber(`INV-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`);
+
+      // Set contact if available
+      if (opportunityData.contactName) {
+        setSelectedContact({
+          id: opportunityData.contactId || opportunityData.id,
+          name: opportunityData.contactName,
+          email: opportunityData.contactEmail || '',
+          phone: opportunityData.contactPhone || '',
+        });
+        setContactSearch('');
+      }
+
+      // Set opportunity
+      if (opportunityData.id) {
+        setSelectedOpportunity({
+          id: opportunityData.id,
+          title: opportunityData.name,
+          contact_name: opportunityData.contactName,
+          stage: opportunityData.stageName,
+          display_value: `$${opportunityData.monetaryValue?.toLocaleString() || '0'}`,
+          pipeline_name: opportunityData.pipelineName
+        });
+        setOpportunitySearch('');
+      }
+
+      // Create line items from opportunity value if no existing items
+      if (opportunityData.monetaryValue && opportunityData.monetaryValue > 0) {
+        const newLineItem = {
+          id: crypto.randomUUID(),
+          description: `Work for ${opportunityData.name}`,
+          quantity: 1,
+          unit_price: opportunityData.monetaryValue,
+          total: opportunityData.monetaryValue,
+          product_id: null,
+          product_name: '',
+        };
+        setLineItems([newLineItem]);
+      }
+
+      // Set projections if available
+      if (opportunityData.materialExpenses || opportunityData.laborExpenses || opportunityData.totalCommissions) {
+        setProjectedMaterialsCost(opportunityData.materialExpenses || 0);
+        setProjectedLaborCost(opportunityData.laborExpenses || 0);
+        setProjectedCommissions(opportunityData.totalCommissions || 0);
+      }
+    }
+  }, [opportunityData, convertFromEstimate]);
 
   // Debounced opportunity search
   useEffect(() => {
@@ -626,6 +773,8 @@ export default function InvoiceBuilder({
   };
 
   const handleSave = async (status: 'draft' | 'sent' = 'draft') => {
+    console.log('handleSave called with:', { status, integrationId, selectedContact, invoiceName });
+    
     // Validation
     if (!selectedContact) {
       alert('Please select a contact');
@@ -634,6 +783,11 @@ export default function InvoiceBuilder({
     
     if (!invoiceName.trim()) {
       alert('Please enter an invoice name');
+      return;
+    }
+    
+    if (!integrationId) {
+      alert('Integration ID is missing. Please refresh the page and try again.');
       return;
     }
     
@@ -654,7 +808,8 @@ export default function InvoiceBuilder({
       // Relationships
       contact_id: selectedContact.id,
       opportunity_id: selectedOpportunity?.id || opportunityId,
-      estimate_id: estimateId,
+      estimate_id: convertFromEstimate?.id || null,
+      integration_id: integrationId, // Add missing integration_id
       
       // Financial data
       amount: total,
@@ -694,16 +849,37 @@ export default function InvoiceBuilder({
       }
     };
 
+    console.log('Sending invoice data:', invoiceData);
     await onSave(invoiceData);
   };
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-lg max-w-6xl w-full max-h-[90vh] overflow-y-auto">
+        {/* Workflow Breadcrumb */}
+        <WorkflowBreadcrumb 
+          currentStep="invoice"
+          opportunityData={opportunityData || (convertFromEstimate ? {name: convertFromEstimate.name, monetaryValue: convertFromEstimate.amount} : undefined)}
+          estimateData={convertFromEstimate}
+        />
+        
         <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-          <h2 className="text-xl font-semibold text-gray-900">
-            {invoice ? 'Edit Invoice' : 'Create New Invoice'}
-          </h2>
+          <div>
+            <h2 className="text-xl font-semibold text-gray-900">
+              {invoice ? 'Edit Invoice' : 
+               convertFromEstimate ? 'Convert Estimate to Invoice' :
+               opportunityData ? 'Create Invoice from Opportunity' :
+               'Create New Invoice'}
+            </h2>
+            <p className="text-sm text-gray-600 mt-1">
+              {convertFromEstimate 
+                ? `Converting estimate "${convertFromEstimate.name}" to invoice`
+                : opportunityData 
+                ? `Generate invoice for: ${opportunityData.name}` 
+                : 'Generate a professional invoice for payment collection'
+              }
+            </p>
+          </div>
           <button
             onClick={onClose}
             className="text-gray-400 hover:text-gray-600"
@@ -789,8 +965,14 @@ export default function InvoiceBuilder({
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                                         <input
                         type="text"
-                        value={contactSearch || ''}
-                        onChange={(e) => setContactSearch(e.target.value)}
+                        value={selectedContact ? selectedContact.name : (contactSearch || '')}
+                        onChange={(e) => {
+                          if (selectedContact) {
+                            // Clear selection if user starts typing
+                            setSelectedContact(null);
+                          }
+                          setContactSearch(e.target.value);
+                        }}
                         onFocus={() => {
                           // Only show dropdown if we have search results and no contact is selected
                           if (contactSearch && searchResults.length > 0 && !selectedContact) {
@@ -901,8 +1083,14 @@ export default function InvoiceBuilder({
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                                         <input
                         type="text"
-                        value={opportunitySearch || ''}
-                        onChange={(e) => setOpportunitySearch(e.target.value)}
+                        value={selectedOpportunity ? selectedOpportunity.title : (opportunitySearch || '')}
+                        onChange={(e) => {
+                          if (selectedOpportunity) {
+                            // Clear selection if user starts typing
+                            setSelectedOpportunity(null);
+                          }
+                          setOpportunitySearch(e.target.value);
+                        }}
                         onFocus={() => {
                           // Only show dropdown if we have search results and no opportunity is selected
                           if (opportunitySearch && opportunityResults.length > 0 && !selectedOpportunity) {

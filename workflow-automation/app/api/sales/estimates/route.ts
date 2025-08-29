@@ -98,7 +98,17 @@ export async function GET(request: NextRequest) {
         valid_until: estimate.expiry_date,
         sent_date: estimate.sent_date,
         notes: estimate.notes,
-        event_type: `estimate_${estimate.status}` // for compatibility
+        event_type: `estimate_${estimate.status}`, // for compatibility
+        // Additional fields needed for invoice conversion
+        name: estimate.name || 'Estimate',
+        description: estimate.description || '',
+        line_items: estimate.line_items || [],
+        terms: estimate.terms || 'Net 30',
+        property_id: estimate.property_id,
+        property_address: estimate.property_address,
+        applied_tax_rate: estimate.applied_tax_rate,
+        metadata: estimate.metadata || {},
+        converted_to_invoice: estimate.converted_to_invoice || false
       };
     });
 
