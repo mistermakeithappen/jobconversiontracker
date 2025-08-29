@@ -29,6 +29,9 @@ interface Opportunity {
   updatedAt: string;
   assignedTo?: string;
   assignedToName?: string;
+  cashCollected?: number;
+  estimatesCount?: number;
+  invoicesCount?: number;
 }
 
 interface Pipeline {
@@ -87,6 +90,58 @@ export function OpportunitiesPipelineView({
     }
   }, [availablePipelines, selectedPipeline, pipelines.length, opportunities.length]);
 
+  // Fetch cash collected data for opportunities
+  useEffect(() => {
+    const fetchCashCollectedData = async () => {
+      if (!opportunities.length) return;
+      
+      const promises = opportunities.map(async (opportunity) => {
+        try {
+          const [cashResponse, estimatesResponse, invoicesResponse] = await Promise.all([
+            fetch(`/api/sales/opportunities/${opportunity.id}/cash-collected`),
+            fetch(`/api/sales/opportunities/${opportunity.id}/estimates`),
+            fetch(`/api/sales/opportunities/${opportunity.id}/invoices`)
+          ]);
+
+          const [cashData, estimatesData, invoicesData] = await Promise.all([
+            cashResponse.ok ? cashResponse.json() : null,
+            estimatesResponse.ok ? estimatesResponse.json() : null,
+            invoicesResponse.ok ? invoicesResponse.json() : null
+          ]);
+
+          return {
+            opportunityId: opportunity.id,
+            total: cashData?.cash_collected?.total || 0,
+            estimatesCount: estimatesData?.summary?.total_count || 0,
+            invoicesCount: invoicesData?.summary?.total_count || 0
+          };
+        } catch (error) {
+          console.error(`Error fetching data for opportunity ${opportunity.id}:`, error);
+          return {
+            opportunityId: opportunity.id,
+            total: 0,
+            estimatesCount: 0,
+            invoicesCount: 0
+          };
+        }
+      });
+
+      const results = await Promise.all(promises);
+      const dataMap = results.reduce((acc, result) => {
+        acc[result.opportunityId] = {
+          total: result.total,
+          estimatesCount: result.estimatesCount,
+          invoicesCount: result.invoicesCount
+        };
+        return acc;
+      }, {} as {[key: string]: { total: number, estimatesCount: number, invoicesCount: number }});
+
+      setCashCollectedData(dataMap);
+    };
+
+    fetchCashCollectedData();
+  }, [opportunities]);
+
   // Handle opening opportunity from URL parameter
   useEffect(() => {
     if (openOpportunityId && opportunities.length > 0) {
@@ -107,6 +162,7 @@ export function OpportunitiesPipelineView({
   const [estimateOpportunity, setEstimateOpportunity] = useState<Opportunity | null>(null);
   const [showInvoiceBuilder, setShowInvoiceBuilder] = useState(false);
   const [invoiceOpportunity, setInvoiceOpportunity] = useState<Opportunity | null>(null);
+  const [cashCollectedData, setCashCollectedData] = useState<{[key: string]: { total: number, estimatesCount: number, invoicesCount: number }}>({});
 
   // Filter opportunities by pipeline
   const filteredOpportunities = opportunities.filter(opp => 
@@ -514,7 +570,7 @@ export function OpportunitiesPipelineView({
                                            style={{ backgroundColor: colors.hex, color: 'white' }}>
                                         {initials}
                                       </div>
-                                      <span>{opportunity.assignedToName}</span>
+                                      <span className="text-xs font-medium text-gray-600">{opportunity.assignedToName}</span>
                                     </div>
                                   );
                                 })()}
@@ -524,30 +580,36 @@ export function OpportunitiesPipelineView({
                           
                           {/* Action Buttons */}
                           <div className="flex items-center space-x-2">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setEstimateOpportunity(opportunity);
-                                setShowEstimateBuilder(true);
-                              }}
-                              className="flex items-center space-x-1 px-2 py-1 bg-green-100 text-green-700 rounded-md hover:bg-green-200 transition-colors text-xs"
-                              title="Create Estimate"
-                            >
-                              <Calculator className="w-3 h-3" />
-                              <span>Estimate</span>
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setInvoiceOpportunity(opportunity);
-                                setShowInvoiceBuilder(true);
-                              }}
-                              className="flex items-center space-x-1 px-2 py-1 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 transition-colors text-xs"
-                              title="Create Invoice"
-                            >
-                              <CreditCard className="w-3 h-3" />
-                              <span>Invoice</span>
-                            </button>
+                            {/* Only show Create Estimate button for opportunities in "estimate apt booked" stage */}
+                            {opportunity.stageName && opportunity.stageName.toLowerCase().includes('estimate apt booked') ? (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEstimateOpportunity(opportunity);
+                                  setShowEstimateBuilder(true);
+                                }}
+                                className="flex items-center space-x-1 px-2 py-1 bg-green-100 text-green-700 rounded-md hover:bg-green-200 transition-colors text-xs"
+                                title="Create Estimate from Opportunity"
+                              >
+                                <Calculator className="w-3 h-3" />
+                                <span>Create Estimate</span>
+                              </button>
+                            ) : null}
+                            {/* Create Invoice button hidden as requested */}
+                            {false && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setInvoiceOpportunity(opportunity);
+                                  setShowInvoiceBuilder(true);
+                                }}
+                                className="flex items-center space-x-1 px-2 py-1 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 transition-colors text-xs"
+                                title="Create Invoice from Opportunity"
+                              >
+                                <CreditCard className="w-3 h-3" />
+                                <span>Create Invoice</span>
+                              </button>
+                            )}
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -565,6 +627,14 @@ export function OpportunitiesPipelineView({
                             <span className="text-gray-600">Value:</span>
                             <span className="font-medium text-yellow-600">{formatCurrency(opportunity.monetaryValue)}</span>
                           </div>
+                          
+                          {/* Cash Collected */}
+                          {cashCollectedData[opportunity.id]?.total > 0 && (
+                            <div className="flex justify-between text-sm">
+                              <span className="text-gray-600">Cash Collected:</span>
+                              <span className="font-medium text-green-600">+{formatCurrency(cashCollectedData[opportunity.id].total)}</span>
+                            </div>
+                          )}
                           
                           {opportunity.materialExpenses > 0 && (
                             <div className="flex justify-between text-sm">
@@ -611,12 +681,30 @@ export function OpportunitiesPipelineView({
                           </div>
                         </div>
                         
-                        {opportunity.totalExpenses > 0 && (
-                          <div className="mt-3 flex items-center text-xs text-gray-500">
-                            <Receipt className="w-3 h-3 mr-1" />
-                            Receipts logged
+                        <div className="mt-3 flex items-center justify-between text-xs text-gray-500">
+                          <div className="flex items-center">
+                            {opportunity.totalExpenses > 0 && (
+                              <>
+                                <Receipt className="w-3 h-3 mr-1" />
+                                <span>Receipts logged</span>
+                              </>
+                            )}
                           </div>
-                        )}
+                          <div className="flex items-center space-x-3">
+                            {cashCollectedData[opportunity.id]?.estimatesCount > 0 && (
+                              <div className="flex items-center">
+                                <Calculator className="w-3 h-3 mr-1" />
+                                <span>{cashCollectedData[opportunity.id].estimatesCount}</span>
+                              </div>
+                            )}
+                            {cashCollectedData[opportunity.id]?.invoicesCount > 0 && (
+                              <div className="flex items-center">
+                                <FileText className="w-3 h-3 mr-1" />
+                                <span>{cashCollectedData[opportunity.id].invoicesCount}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -648,6 +736,7 @@ export function OpportunitiesPipelineView({
           contactName={estimateOpportunity.contactName}
           opportunityId={estimateOpportunity.id}
           integrationId={integrationId}
+          opportunityData={estimateOpportunity} // Pass full opportunity data for auto-population
           onClose={() => {
             setShowEstimateBuilder(false);
             setEstimateOpportunity(null);

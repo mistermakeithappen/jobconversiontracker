@@ -20,8 +20,11 @@ export async function getAuthUser(request?: NextRequest) {
   try {
     const cookieStore = await cookies();
     
-    // Debug: Log all available cookies
-    console.log('Available cookies:', Array.from(cookieStore.getAll()).map(c => c.name));
+    // Only log cookies in development mode
+    const isDev = process.env.NODE_ENV === 'development';
+    if (isDev) {
+      console.log('Available cookies:', Array.from(cookieStore.getAll()).map(c => c.name));
+    }
     
     // Create a Supabase server client that can read cookies
     const supabase = createServerClient(
@@ -31,7 +34,10 @@ export async function getAuthUser(request?: NextRequest) {
         cookies: {
           get(name: string) {
             const value = cookieStore.get(name)?.value;
-            console.log(`Cookie ${name}:`, value ? 'found' : 'not found');
+            // Only log individual cookie checks in development
+            if (isDev && name.includes('auth-token')) {
+              console.log(`Cookie ${name}:`, value ? 'found' : 'not found');
+            }
             return value;
           },
         },
@@ -50,7 +56,9 @@ export async function getAuthUser(request?: NextRequest) {
       return { userId: null, user: null, error: 'No authenticated user' };
     }
 
-    console.log('Cookie auth user found:', user.id, user.email);
+    if (isDev) {
+      console.log('Cookie auth user found:', user.id, user.email);
+    }
     return { 
       userId: user.id, 
       user: user, 
