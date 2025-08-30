@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/lib/auth/auth-context';
-import { FileText, RefreshCw, Search, Filter, DollarSign, Calendar, User, AlertCircle, CheckCircle, Clock, XCircle, Download, Plus } from 'lucide-react';
+import { FileText, RefreshCw, Search, Filter, DollarSign, Calendar, User, AlertCircle, CheckCircle, Clock, XCircle, Download, Plus, Eye } from 'lucide-react';
 import InvoiceBuilder from '@/components/ghl/sales/InvoiceBuilder';
+import InvoicePreview from '@/components/ghl/sales/InvoicePreview';
 
 interface Invoice {
   id: string;
@@ -70,10 +71,14 @@ export default function InvoicesManagement() {
   const [integrations, setIntegrations] = useState<any[]>([]);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [showInvoiceBuilder, setShowInvoiceBuilder] = useState(false);
+  const [showInvoicePreview, setShowInvoicePreview] = useState(false);
+  const [previewInvoice, setPreviewInvoice] = useState<Invoice | null>(null);
+  const [organization, setOrganization] = useState<any>(null);
 
   useEffect(() => {
     if (user) {
       fetchIntegrations();
+      fetchOrganization();
     }
   }, [user]);
 
@@ -176,6 +181,20 @@ export default function InvoicesManagement() {
       setSyncError('An error occurred while syncing invoices');
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const fetchOrganization = async () => {
+    try {
+      const response = await fetch('/api/organization', {
+        credentials: 'include',
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setOrganization(data.organization);
+      }
+    } catch (error) {
+      console.error('Error fetching organization:', error);
     }
   };
 
@@ -471,6 +490,9 @@ export default function InvoicesManagement() {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Due Date
                   </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Actions
+                  </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
@@ -517,6 +539,32 @@ export default function InvoicesManagement() {
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {invoice.due_date ? formatDate(invoice.due_date) : '-'}
                     </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                      <div className="flex items-center space-x-3">
+                        <button
+                          onClick={() => {
+                            setPreviewInvoice(invoice);
+                            setShowInvoicePreview(true);
+                          }}
+                          className="text-green-600 hover:text-green-900 flex items-center"
+                        >
+                          <FileText className="w-4 h-4 mr-1" />
+                          View
+                        </button>
+                        {invoice.status !== 'paid' && invoice.status !== 'void' && (
+                          <button
+                            onClick={() => {
+                              setPreviewInvoice(invoice);
+                              setShowInvoicePreview(true);
+                            }}
+                            className="text-blue-600 hover:text-blue-900 flex items-center"
+                          >
+                            <DollarSign className="w-4 h-4 mr-1" />
+                            Payment
+                          </button>
+                        )}
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -524,6 +572,51 @@ export default function InvoicesManagement() {
           </div>
         )}
       </div>
+
+      {/* Invoice Preview */}
+      {showInvoicePreview && previewInvoice && (
+        <InvoicePreview
+          invoice={previewInvoice}
+          organization={organization}
+          onClose={() => {
+            setShowInvoicePreview(false);
+            setPreviewInvoice(null);
+          }}
+          onEdit={() => {
+            // Handle edit functionality - could open InvoiceBuilder in edit mode
+            alert('Edit invoice functionality to be implemented');
+          }}
+          onSend={() => {
+            // Handle send invoice
+            alert('Send invoice functionality to be implemented');
+          }}
+          onDownload={() => {
+            // Handle download PDF
+            alert('Download PDF functionality to be implemented');
+          }}
+          onRecordPayment={async (paymentData) => {
+            try {
+              const response = await fetch(`/api/sales/invoices/${previewInvoice.id}/payments`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify(paymentData)
+              });
+
+              if (response.ok) {
+                fetchInvoices(); // Refresh to get updated payment info
+                alert('Payment recorded successfully!');
+              } else {
+                const error = await response.json();
+                alert('Failed to record payment: ' + (error.error || 'Unknown error'));
+              }
+            } catch (error) {
+              console.error('Error recording payment:', error);
+              alert('Failed to record payment. Please try again.');
+            }
+          }}
+        />
+      )}
 
       {/* Invoice Builder Modal */}
       {showInvoiceBuilder && (
