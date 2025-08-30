@@ -9,7 +9,8 @@ import {
   DollarSign, 
   Receipt, 
   Settings, 
-  BarChart3 
+  BarChart3,
+  Calendar
 } from 'lucide-react';
 import { useSubscription } from '@/hooks/useSubscription';
 import { PaywallBanner } from '@/components/ui/PaywallBanner';
@@ -34,6 +35,12 @@ const ghlNavItems = [
     label: 'Opportunities', 
     icon: DollarSign,
     description: 'Pipeline view and profitability tracking'
+  },
+  { 
+    href: '/ghl/calendar', 
+    label: 'Calendar', 
+    icon: Calendar,
+    description: 'Calendar and appointment management'
   },
   { 
     href: '/ghl/sales', 

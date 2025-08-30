@@ -50,7 +50,7 @@ export async function GET() {
       .select(`
         role,
         custom_permissions,
-        organizations!organization_members_organization_id_fkey(
+        organizations!inner(
           id,
           name,
           slug,
@@ -59,7 +59,7 @@ export async function GET() {
           trial_ends_at
         )
       `)
-      .eq('organization_members.user_id', user.id)
+      .eq('user_id', user.id)
       .single();
 
     if (orgError || !orgMember) {
@@ -81,13 +81,13 @@ export async function GET() {
         full_name: userData.full_name,
       },
       organization: {
-        id: orgMember.organizations[0].id,
-        name: orgMember.organizations[0].name,
-        slug: orgMember.organizations[0].slug,
+        id: orgMember.organizations.id,
+        name: orgMember.organizations.name,
+        slug: orgMember.organizations.slug,
         role: orgMember.role,
-        subscription_status: orgMember.organizations[0].subscription_status,
-        subscription_plan: orgMember.organizations[0].subscription_plan,
-        trial_ends_at: orgMember.organizations[0].trial_ends_at,
+        subscription_status: orgMember.organizations.subscription_status,
+        subscription_plan: orgMember.organizations.subscription_plan,
+        trial_ends_at: orgMember.organizations.trial_ends_at,
       },
     });
   } catch (error: any) {

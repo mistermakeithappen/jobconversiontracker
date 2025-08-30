@@ -34,8 +34,8 @@ export async function getAuthUser(request?: NextRequest) {
         cookies: {
           get(name: string) {
             const value = cookieStore.get(name)?.value;
-            // Only log individual cookie checks in development
-            if (isDev && name.includes('auth-token')) {
+            // Only log the main auth token, not the chunks
+            if (isDev && name === 'sb-ypxioziyfhbjsqlgeogl-auth-token') {
               console.log(`Cookie ${name}:`, value ? 'found' : 'not found');
             }
             return value;

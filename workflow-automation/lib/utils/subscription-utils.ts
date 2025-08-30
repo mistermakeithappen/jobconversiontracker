@@ -24,7 +24,7 @@ export async function checkUserSubscription(userId: string): Promise<Subscriptio
       .select('status, current_period_end, trial_end')
       .eq('user_id', userId)
       .in('status', ['trialing', 'active'])
-      .order('created_at', { ascending: false })
+      .order('created', { ascending: false })
       .limit(1)
       .maybeSingle();
 
@@ -97,6 +97,12 @@ export async function checkUserSubscription(userId: string): Promise<Subscriptio
 export async function requireSubscription(request: NextRequest) {
   const { userId } = await requireAuth(request);
   const subscriptionStatus = await checkUserSubscription(userId);
+  
+  // For development, allow access even without subscription
+  // Remove this in production
+  if (process.env.NODE_ENV === 'development') {
+    return { userId, subscriptionStatus: { hasActiveSubscription: true } };
+  }
   
   if (!subscriptionStatus.hasActiveSubscription) {
     throw new Error('Active subscription required to access GHL services');
